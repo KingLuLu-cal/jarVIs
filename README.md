@@ -74,3 +74,4 @@ disconnecting either `TxD` or `RxD` pin: no characters will appear when typing.
 ## Troubleshooting
 
 You are not supposed to see the echo in the terminal which is used for flashing and monitoring, but in the other UART configured through Kconfig can be used.
+# jarVIs
