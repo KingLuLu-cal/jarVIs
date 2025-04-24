@@ -45,10 +45,13 @@
 #define ECHO_TASK_STACK_SIZE    (CONFIG_EXAMPLE_TASK_STACK_SIZE)
 
 #define DEFAULT_PERIOD 1000
+#define MAX_DISTANCE 190
+#define MIN_DISTANCE 15
 
 static uint8_t s_led_state = 1;
 
 static uint32_t flash_period = DEFAULT_PERIOD;
+static float distance = MAX_DISTANCE;
 static uint32_t flash_period_dec = DEFAULT_PERIOD/10;
 static float get_distance_cm();
 
@@ -69,6 +72,47 @@ static void blink_task(void *arg)
     s_led_state = !s_led_state;
     blink_led();
     vTaskDelay(flash_period/ portTICK_PERIOD_MS);
+    }
+
+}
+
+static void read_distance(void *arg)
+{
+    while(1)
+    {
+        distance = get_distance_cm();
+
+        // char msg[64];
+        // if (distance < 0) {
+        //     snprintf(msg, sizeof(msg), "Out of range\n");
+        // } else {
+        //     snprintf(msg, sizeof(msg), "Distance: %.2f cm\n", distance);
+        // }
+        // uart_write_bytes(ECHO_UART_PORT_NUM, msg, strlen(msg));
+        
+        vTaskDelay(17 / portTICK_PERIOD_MS);
+    }
+}
+
+
+static void motor_control(void *arg)
+{
+    while(1)
+    {   
+        static uint32_t duty = 0;
+        if (distance >= MAX_DISTANCE && distance <= MIN_DISTANCE){
+            duty = 0;
+        }
+        else {
+            duty = (MAX_DISTANCE - distance) / (MAX_DISTANCE - MIN_DISTANCE) * 255;
+        }
+
+        // char msg[64];
+        // snprintf(msg, sizeof(msg), "Duty: %" PRIu32 " /255 \n", duty);
+        // uart_write_bytes(ECHO_UART_PORT_NUM, msg, strlen(msg));
+        ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty);
+        ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+        vTaskDelay(100 / portTICK_PERIOD_MS);
     }
 
 }
@@ -214,5 +258,8 @@ void app_main(void)
 
     xTaskCreate(echo_task, "uart_echo_task", ECHO_TASK_STACK_SIZE, NULL, 10, NULL);
     xTaskCreate(blink_task, "blink_LED", 1024, NULL, 5, &myTaskHandle);
+    vTaskDelay(1000);
+    xTaskCreate(read_distance, "read_distance", 2048, NULL, 5, NULL);
+    xTaskCreate(motor_control, "motor_control", 2048, NULL, 5, NULL);
     vTaskSuspend(myTaskHandle);
 }
