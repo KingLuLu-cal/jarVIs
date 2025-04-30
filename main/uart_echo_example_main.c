@@ -18,9 +18,13 @@
 #include "esp_timer.h"
 #include "driver/ledc.h"
 
-// added
+// top
 #define TRIG_PIN 27
 #define ECHO_PIN 12
+// front
+#define TRIG__front 32
+#define ECHO__front 14
+
 #define PWM_MOTOR 33
 #define DIR_MOTOR 15
 /**
@@ -45,8 +49,8 @@
 #define ECHO_TASK_STACK_SIZE    (CONFIG_EXAMPLE_TASK_STACK_SIZE)
 
 #define DEFAULT_PERIOD 1000
-#define MAX_DISTANCE 190
-#define MIN_DISTANCE 15
+#define MAX_DISTANCE 300
+#define MIN_DISTANCE 5
 
 static uint8_t s_led_state = 1;
 
@@ -80,7 +84,7 @@ static void read_distance(void *arg)
 {
     while(1)
     {
-        distance = get_distance_cm();
+        distance = get_distance_cm(TRIG_PIN, ECHO_PIN);
 
         // char msg[64];
         // if (distance < 0) {
@@ -204,7 +208,17 @@ static void echo_task(void *arg)
                     ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
                     break;
                 case 'D': 
-                    float distance = get_distance_cm();
+                    float distance_2 = get_distance_cm(TRIG_PIN, ECHO_PIN);
+                    char msg2[64];
+                    if (distance_2 < 0) {
+                        snprintf(msg2, sizeof(msg2), "Out of range\n");
+                    } else {
+                        snprintf(msg2, sizeof(msg2), "Distance: %.2f cm\n", distance_2);
+                    }
+                    uart_write_bytes(ECHO_UART_PORT_NUM, msg2, strlen(msg2));
+                    break;
+                case 'F': 
+                    float distance = get_distance_cm(TRIG__front, ECHO__front);
                     char msg[64];
                     if (distance < 0) {
                         snprintf(msg, sizeof(msg), "Out of range\n");
@@ -220,24 +234,24 @@ static void echo_task(void *arg)
     }
 }
 
-static float get_distance_cm()
+static float get_distance_cm(uint32_t trig, uint32_t echo)
 {
     // Send trigger pulse
-    gpio_set_level(TRIG_PIN, 0);
+    gpio_set_level(trig, 0);
     ets_delay_us(2);
-    gpio_set_level(TRIG_PIN, 1);
+    gpio_set_level(trig, 1);
     ets_delay_us(10);
-    gpio_set_level(TRIG_PIN, 0);
+    gpio_set_level(trig, 0);
 
     // Wait for echo to go HIGH
     uint32_t timeout = 30000; // 30ms timeout
     uint32_t start = esp_timer_get_time();
-    while (gpio_get_level(ECHO_PIN) == 0) {
+    while (gpio_get_level(echo) == 0) {
         if ((esp_timer_get_time() - start) > timeout) return -1;
     }
 
     int64_t echo_start = esp_timer_get_time();
-    while (gpio_get_level(ECHO_PIN) == 1) {
+    while (gpio_get_level(echo) == 1) {
         if ((esp_timer_get_time() - echo_start) > timeout) return -1;
     }
     int64_t echo_end = esp_timer_get_time();
@@ -252,8 +266,13 @@ void app_main(void)
     gpio_set_level(DIR_MOTOR, 1);               
     /* Set the GPIO as a push/pull output */
     gpio_set_direction(13, GPIO_MODE_OUTPUT);
+    // TOP 
     gpio_set_direction(TRIG_PIN, GPIO_MODE_OUTPUT);
     gpio_set_direction(ECHO_PIN, GPIO_MODE_INPUT);
+    // front
+    gpio_set_direction(TRIG__front, GPIO_MODE_OUTPUT);
+    gpio_set_direction(ECHO__front, GPIO_MODE_INPUT);
+
     blink_led();
 
     xTaskCreate(echo_task, "uart_echo_task", ECHO_TASK_STACK_SIZE, NULL, 10, NULL);
