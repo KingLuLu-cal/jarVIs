@@ -19,14 +19,43 @@
 #include "driver/ledc.h"
 
 // top
-#define TRIG_PIN 27
-#define ECHO_PIN 12
+#define TRIG_PIN 25 // represent A1 in code
+#define ECHO_PIN 26 // represent A0 in code
 // front
-#define TRIG__front 32
-#define ECHO__front 14
+#define TRIG__front 4 // A5
+#define ECHO__front 36 // A4
 
-#define PWM_MOTOR 33
-#define DIR_MOTOR 15
+// For Mecanum Wheel
+// FL = Front Left, FR = Front Right, RL = Rear Left, RR = Rear Right
+// Need to modify the pins later
+// one of the Driver
+// #define FL_PWM 39 //Ain2
+// #define FL_DIR 13 //Ain1
+// #define RL_PWM 32 //Bin1
+// #define RL_DIR 33 //Bin2
+// // one of the Driver
+// #define FR_PWM 37 //Ain1
+// #define FR_DIR 27 //Ain2
+// #define RR_PWM 14 //Bin1
+// #define RR_DIR 15 //Bin2
+
+// For FL Motor
+#define FL_IN1 12  // Ain1
+#define FL_IN2 39  // Ain2
+
+// For FR Motor
+#define FR_IN1 37  // Ain1
+#define FR_IN2 27  // Ain2
+
+// For RL Motor
+#define RL_IN1 32  // Bin1
+#define RL_IN2 33  // Bin2
+
+// For RR Motor
+#define RR_IN1 14  // Bin1
+#define RR_IN2 15  // Bin2
+
+
 /**
  * This is an example which echos any data it receives on configured UART back to the sender,
  * with hardware flow control turned off. It does not use UART driver event queue.
@@ -58,6 +87,15 @@ static uint32_t flash_period = DEFAULT_PERIOD;
 static float distance = MAX_DISTANCE;
 static uint32_t flash_period_dec = DEFAULT_PERIOD/10;
 static float get_distance_cm();
+//  For Mecanum Wheel
+// --- Mecanum movement prototypes ---
+void move_forward(uint32_t speed);
+void move_backward(uint32_t speed);
+void move_left(uint32_t speed);
+void move_right(uint32_t speed);
+void rotate_clockwise(uint32_t speed);
+void rotate_counterclockwise(uint32_t speed);
+void stop_all_motors(void);
 
 TaskHandle_t myTaskHandle = NULL;
 
@@ -99,27 +137,27 @@ static void read_distance(void *arg)
 }
 
 
-static void motor_control(void *arg)
-{
-    while(1)
-    {   
-        static uint32_t duty = 0;
-        if (distance >= MAX_DISTANCE && distance <= MIN_DISTANCE){
-            duty = 0;
-        }
-        else {
-            duty = (MAX_DISTANCE - distance) / (MAX_DISTANCE - MIN_DISTANCE) * 255;
-        }
+// static void motor_control(void *arg)
+// {
+//     while(1)
+//     {   
+//         static uint32_t duty = 0;
+//         if (distance >= MAX_DISTANCE && distance <= MIN_DISTANCE){
+//             duty = 0;
+//         }
+//         else {
+//             duty = (MAX_DISTANCE - distance) / (MAX_DISTANCE - MIN_DISTANCE) * 255;
+//         }
 
-        // char msg[64];
-        // snprintf(msg, sizeof(msg), "Duty: %" PRIu32 " /255 \n", duty);
-        // uart_write_bytes(ECHO_UART_PORT_NUM, msg, strlen(msg));
-        ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty);
-        ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
-        vTaskDelay(100 / portTICK_PERIOD_MS);
-    }
+//         // char msg[64];
+//         // snprintf(msg, sizeof(msg), "Duty: %" PRIu32 " /255 \n", duty);
+//         // uart_write_bytes(ECHO_UART_PORT_NUM, msg, strlen(msg));
+//         ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty);
+//         ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+//         vTaskDelay(100 / portTICK_PERIOD_MS);
+//     }
 
-}
+// }
 
 static void echo_task(void *arg)
 {
@@ -135,29 +173,9 @@ static void echo_task(void *arg)
     };
     int intr_alloc_flags = 0;
 
-    // 2. Configure LEDC (PWM)
-    ledc_timer_config_t ledc_timer = {
-        .speed_mode       = LEDC_LOW_SPEED_MODE,
-        .duty_resolution  = LEDC_TIMER_8_BIT, // 8-bit resolution
-        .timer_num        = LEDC_TIMER_0,
-        .freq_hz          = 20000,            // 20 kHz PWM
-        .clk_cfg          = LEDC_AUTO_CLK
-    };
-    ledc_timer_config(&ledc_timer);
-
-    ledc_channel_config_t ledc_channel = {
-        .channel    = LEDC_CHANNEL_0,
-        .duty       = 0,
-        .gpio_num   = PWM_MOTOR,
-        .speed_mode = LEDC_LOW_SPEED_MODE,
-        .hpoint     = 0,
-        .timer_sel  = LEDC_TIMER_0
-    };
-    ledc_channel_config(&ledc_channel);
-
-#if CONFIG_UART_ISR_IN_IRAM
-    intr_alloc_flags = ESP_INTR_FLAG_IRAM;
-#endif
+    #if CONFIG_UART_ISR_IN_IRAM
+        intr_alloc_flags = ESP_INTR_FLAG_IRAM;
+    #endif
 
     ESP_ERROR_CHECK(uart_driver_install(ECHO_UART_PORT_NUM, BUF_SIZE * 2, 0, 0, NULL, intr_alloc_flags));
     ESP_ERROR_CHECK(uart_param_config(ECHO_UART_PORT_NUM, &uart_config));
@@ -187,27 +205,57 @@ static void echo_task(void *arg)
                     flash_period -= flash_period_dec;
                     if(flash_period <= flash_period_dec) flash_period = flash_period_dec;
                     break;
-                case 'A':
-                    vTaskResume(myTaskHandle);
-                    break;
+                // case 'A':
+                //     vTaskResume(myTaskHandle);
+                //     break;
                 case 'B':
                     vTaskSuspend(myTaskHandle);
                     break;
                 case 'R':
                     flash_period = DEFAULT_PERIOD;
                     break;
-                case 'M':
-                    for(int i = 0; i < 256; i += 5){
-                        ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, i);  // 50% of 255
-                        ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
-                        vTaskDelay(pdMS_TO_TICKS(1000));          // wait 3 sec
-                    }
-
-                    // 4. Reverse direction and go faster
-                    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, 0);
-                    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+                // === New: Mecanum movement ===
+                case 'W':
+                    move_forward(180);
+                    uart_write_bytes(ECHO_UART_PORT_NUM, "Moving Forward\n", strlen("Moving Forward\n"));
                     break;
-                case 'D': 
+                case 'S':
+                    move_backward(180);
+                    uart_write_bytes(ECHO_UART_PORT_NUM, "Moving Backward\n", strlen("Moving Backward\n"));
+                    break;
+                case 'A':
+                    move_left(180);
+                    uart_write_bytes(ECHO_UART_PORT_NUM, "Strafing Left\n", strlen("Strafing Left\n"));
+                    break;
+                case 'D':
+                    move_right(180);
+                    uart_write_bytes(ECHO_UART_PORT_NUM, "Strafing Right\n", strlen("Strafing Right\n"));
+                    break;
+                case 'Q':
+                    rotate_counterclockwise(180);
+                    uart_write_bytes(ECHO_UART_PORT_NUM, "Rotating CCW\n", strlen("Rotating CCW\n"));
+                    break;
+                case 'E':
+                    rotate_clockwise(180);
+                    uart_write_bytes(ECHO_UART_PORT_NUM, "Rotating CW\n", strlen("Rotating CW\n"));
+                    break;
+                case 'X':
+                    stop_all_motors();
+                    uart_write_bytes(ECHO_UART_PORT_NUM, "Mecanum Motors Stopped\n", strlen("Mecanum Motors Stopped\n"));
+                    break;
+
+                // case 'M':
+                //     for(int i = 0; i < 256; i += 5){
+                //         ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, i);  // 50% of 255
+                //         ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+                //         vTaskDelay(pdMS_TO_TICKS(1000));          // wait 3 sec
+                //     }
+
+                //     // 4. Reverse direction and go faster
+                //     ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, 0);
+                //     ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+                //     break;
+                case 'O': 
                     float distance_2 = get_distance_cm(TRIG_PIN, ECHO_PIN);
                     char msg2[64];
                     if (distance_2 < 0) {
@@ -260,10 +308,110 @@ static float get_distance_cm(uint32_t trig, uint32_t echo)
     return distance;
 }
 
+void init_mecanum_motors() {
+    // Set all IN2 (DIR) pins as digital outputs
+    gpio_set_direction(FL_IN2, GPIO_MODE_OUTPUT);
+    gpio_set_direction(FR_IN2, GPIO_MODE_OUTPUT);
+    gpio_set_direction(RL_IN2, GPIO_MODE_OUTPUT);
+    gpio_set_direction(RR_IN2, GPIO_MODE_OUTPUT);
+
+    // Configure LEDC PWM on IN1 pins
+    ledc_timer_config_t ledc_timer = {
+        .speed_mode = LEDC_LOW_SPEED_MODE,
+        .duty_resolution = LEDC_TIMER_8_BIT,
+        .timer_num = LEDC_TIMER_1,
+        .freq_hz = 20000,
+        .clk_cfg = LEDC_AUTO_CLK
+    };
+    ledc_timer_config(&ledc_timer);
+
+    ledc_channel_config_t motor_channels[] = {
+        {.channel = LEDC_CHANNEL_0, .gpio_num = FL_IN1, .duty = 0, .speed_mode = LEDC_LOW_SPEED_MODE, .hpoint = 0, .timer_sel = LEDC_TIMER_1},
+        {.channel = LEDC_CHANNEL_1, .gpio_num = FR_IN1, .duty = 0, .speed_mode = LEDC_LOW_SPEED_MODE, .hpoint = 0, .timer_sel = LEDC_TIMER_1},
+        {.channel = LEDC_CHANNEL_2, .gpio_num = RL_IN1, .duty = 0, .speed_mode = LEDC_LOW_SPEED_MODE, .hpoint = 0, .timer_sel = LEDC_TIMER_1},
+        {.channel = LEDC_CHANNEL_3, .gpio_num = RR_IN1, .duty = 0, .speed_mode = LEDC_LOW_SPEED_MODE, .hpoint = 0, .timer_sel = LEDC_TIMER_1},
+    };
+
+    for (int i = 0; i < 4; ++i) {
+        ledc_channel_config(&motor_channels[i]);
+    }
+}
+
+
+// void set_motor(uint8_t channel, gpio_num_t dir_pin, bool forward, uint32_t speed) {
+//     gpio_set_level(dir_pin, forward ? 0 : 1);  // LOW = forward
+//     ledc_set_duty(LEDC_LOW_SPEED_MODE, channel, speed);
+//     ledc_update_duty(LEDC_LOW_SPEED_MODE, channel);
+// }
+
+void set_motor(gpio_num_t in1, gpio_num_t in2, bool forward, uint32_t speed, ledc_channel_t pwm_channel) {
+    if (forward) {
+        gpio_set_level(in1, 1);  // HIGH
+        gpio_set_level(in2, 0);  // LOW
+    } else {
+        gpio_set_level(in1, 0);
+        gpio_set_level(in2, 1);
+    }
+
+    // Apply PWM to IN1
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, pwm_channel, speed);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, pwm_channel);
+}
+
+// Wheels Helpers
+void move_forward(uint32_t speed) {
+    set_motor(FL_IN1, FL_IN2, true, speed, LEDC_CHANNEL_0);
+    set_motor(FR_IN1, FR_IN2, true, speed, LEDC_CHANNEL_1);
+    set_motor(RL_IN1, RL_IN2, true, speed, LEDC_CHANNEL_2);
+    set_motor(RR_IN1, RR_IN2, true, speed, LEDC_CHANNEL_3);
+}
+
+void move_backward(uint32_t speed) {
+    set_motor(FL_IN1, FL_IN2, false, speed, LEDC_CHANNEL_0);
+    set_motor(FR_IN1, FR_IN2, false, speed, LEDC_CHANNEL_1);
+    set_motor(RL_IN1, RL_IN2, false, speed, LEDC_CHANNEL_2);
+    set_motor(RR_IN1, RR_IN2, false, speed, LEDC_CHANNEL_3);
+}
+
+void move_left(uint32_t speed) {
+    set_motor(FL_IN1, FL_IN2, false, speed, LEDC_CHANNEL_0);
+    set_motor(FR_IN1, FR_IN2, true, speed, LEDC_CHANNEL_1);
+    set_motor(RL_IN1, RL_IN2, true, speed, LEDC_CHANNEL_2);
+    set_motor(RR_IN1, RR_IN2, false, speed, LEDC_CHANNEL_3);
+}
+
+void move_right(uint32_t speed) {
+    set_motor(FL_IN1, FL_IN2, true, speed, LEDC_CHANNEL_0);
+    set_motor(FR_IN1, FR_IN2, false, speed, LEDC_CHANNEL_1);
+    set_motor(RL_IN1, RL_IN2, false, speed, LEDC_CHANNEL_2);
+    set_motor(RR_IN1, RR_IN2, true, speed, LEDC_CHANNEL_3);
+}
+
+void rotate_clockwise(uint32_t speed) {
+    set_motor(FL_IN1, FL_IN2, true, speed, LEDC_CHANNEL_0);
+    set_motor(FR_IN1, FR_IN2, false, speed, LEDC_CHANNEL_1);
+    set_motor(RL_IN1, RL_IN2, true, speed, LEDC_CHANNEL_2);
+    set_motor(RR_IN1, RR_IN2, false, speed, LEDC_CHANNEL_3);
+}
+
+void rotate_counterclockwise(uint32_t speed) {
+    set_motor(FL_IN1, FL_IN2, false, speed, LEDC_CHANNEL_0);
+    set_motor(FR_IN1, FR_IN2, true, speed, LEDC_CHANNEL_1);
+    set_motor(RL_IN1, RL_IN2, false, speed, LEDC_CHANNEL_2);
+    set_motor(RR_IN1, RR_IN2, true, speed, LEDC_CHANNEL_3);
+}
+
+void stop_all_motors() {
+    for (int ch = LEDC_CHANNEL_0; ch <= LEDC_CHANNEL_3; ch++) {
+        ledc_set_duty(LEDC_LOW_SPEED_MODE, ch, 0);
+        ledc_update_duty(LEDC_LOW_SPEED_MODE, ch);
+    }
+}
+
 void app_main(void)
 {
     gpio_reset_pin(13);
-    gpio_set_level(DIR_MOTOR, 1);               
+    // gpio_set_level(DIR_MOTOR, 1);               
     /* Set the GPIO as a push/pull output */
     gpio_set_direction(13, GPIO_MODE_OUTPUT);
     // TOP 
@@ -274,11 +422,14 @@ void app_main(void)
     gpio_set_direction(ECHO__front, GPIO_MODE_INPUT);
 
     blink_led();
+    
+    init_mecanum_motors();
+
 
     xTaskCreate(echo_task, "uart_echo_task", ECHO_TASK_STACK_SIZE, NULL, 10, NULL);
     xTaskCreate(blink_task, "blink_LED", 1024, NULL, 5, &myTaskHandle);
     vTaskDelay(1000);
     xTaskCreate(read_distance, "read_distance", 2048, NULL, 5, NULL);
-    xTaskCreate(motor_control, "motor_control", 2048, NULL, 5, NULL);
+    // xTaskCreate(motor_control, "motor_control", 2048, NULL, 5, NULL);
     vTaskSuspend(myTaskHandle);
 }
