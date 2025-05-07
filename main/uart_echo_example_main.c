@@ -17,6 +17,7 @@
 #include "esp32/rom/ets_sys.h"
 #include "esp_timer.h"
 #include "driver/ledc.h"
+#include <inttypes.h>
 
 // top
 #define TRIG_PIN 25 // represent A1 in code
@@ -41,19 +42,19 @@
 
 // For FL Motor
 #define FL_IN1 12  // Ain1
-#define FL_IN2 39  // Ain2
+#define FL_IN2 21  // Ain2
 
 // For FR Motor
-#define FR_IN1 37  // Ain1
+#define FR_IN1 22  // Ain1
 #define FR_IN2 27  // Ain2
 
-// For RL Motor
+// // For RL Motor
 #define RL_IN1 32  // Bin1
 #define RL_IN2 33  // Bin2
 
 // For RR Motor
 #define RR_IN1 14  // Bin1
-#define RR_IN2 15  // Bin2
+#define RR_IN2 20  // Bin2
 
 
 /**
@@ -123,20 +124,11 @@ static void read_distance(void *arg)
     while(1)
     {
         distance = get_distance_cm(TRIG_PIN, ECHO_PIN);
-
-        // char msg[64];
-        // if (distance < 0) {
-        //     snprintf(msg, sizeof(msg), "Out of range\n");
-        // } else {
-        //     snprintf(msg, sizeof(msg), "Distance: %.2f cm\n", distance);
-        // }
-        // uart_write_bytes(ECHO_UART_PORT_NUM, msg, strlen(msg));
-        
         vTaskDelay(17 / portTICK_PERIOD_MS);
     }
 }
 
-
+// // top.. FLIP
 // static void motor_control(void *arg)
 // {
 //     while(1)
@@ -146,18 +138,77 @@ static void read_distance(void *arg)
 //             duty = 0;
 //         }
 //         else {
-//             duty = (MAX_DISTANCE - distance) / (MAX_DISTANCE - MIN_DISTANCE) * 255;
+//             duty = (MAX_DISTANCE - distance) / (MAX_DISTANCE - MIN_DISTANCE) * 180;
 //         }
-
-//         // char msg[64];
-//         // snprintf(msg, sizeof(msg), "Duty: %" PRIu32 " /255 \n", duty);
-//         // uart_write_bytes(ECHO_UART_PORT_NUM, msg, strlen(msg));
-//         ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty);
-//         ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+//         char msg2[64];
+//         snprintf(msg2, sizeof(msg2), "Duty: %" PRIu32" cm\n", duty);
+//         uart_write_bytes(ECHO_UART_PORT_NUM, msg2, strlen(msg2));
+//         move_forward(duty);
 //         vTaskDelay(100 / portTICK_PERIOD_MS);
 //     }
-
 // }
+
+// front_sensor....
+// static void motor_control(void *arg)
+// {
+//     while (1)
+//     {
+//         float front = get_distance_cm(TRIG__front, ECHO__front);
+//         char msg[64];
+
+//         if (front > 0 && front < 20) {
+//             // Obstacle too close, stop
+//             stop_all_motors();
+//             snprintf(msg, sizeof(msg), "Front Obstacle: %.2f cm - STOP\n", front);
+//         } else {
+//             // Safe to move
+//             move_forward(180);
+//             snprintf(msg, sizeof(msg), "Front Clear: %.2f cm - Moving Forward\n", front);
+//         }
+
+//         uart_write_bytes(ECHO_UART_PORT_NUM, msg, strlen(msg));
+//         vTaskDelay(100 / portTICK_PERIOD_MS);
+//     }
+// }
+
+static void motor_control(void *arg)
+{
+    while (1)
+    {
+        float top = get_distance_cm(TRIG_PIN, ECHO_PIN);         // top sensor
+        float front = get_distance_cm(TRIG__front, ECHO__front); // front sensor
+        char msg[128];
+
+        // Case 1: Obstacle in front
+        if (front > 0 && front < 20) {
+            if (top > MIN_DISTANCE && top < 50) {
+                // Top object detected → avoid front obstacle → go left
+                move_left(250);
+                snprintf(msg, sizeof(msg), "Top: %.2f cm, Front: %.2f cm -> GO LEFT\n", top, front);
+            } else {
+                // No top object → stop
+                stop_all_motors();
+                snprintf(msg, sizeof(msg), "Top: %.2f cm, Front: %.2f cm -> STOP\n", top, front);
+            }
+        } else {
+            // No obstacle in front
+            if (top > MIN_DISTANCE && top < 50) {
+                // Top object detected → go forward (scale speed by distance)
+                uint32_t duty = (MAX_DISTANCE - top) / (MAX_DISTANCE - MIN_DISTANCE) * 255;
+                // move_forward(duty);
+                snprintf(msg, sizeof(msg), "Top: %.2f cm, Front: %.2f cm -> FORWARD at %" PRIu32 "\n", top, front, duty);
+            } else {
+                // No top detection → foward at slow
+                move_forward(180);
+                snprintf(msg, sizeof(msg), "Top: %.2f cm, Front: %.2f cm -> EXPLORING\n", top, front);
+            }
+        }
+
+        uart_write_bytes(ECHO_UART_PORT_NUM, msg, strlen(msg));
+        vTaskDelay(100 / portTICK_PERIOD_MS);
+    }
+}
+
 
 static void echo_task(void *arg)
 {
@@ -183,10 +234,11 @@ static void echo_task(void *arg)
 
     // Configure a temporary buffer for the incoming data
     uint8_t *data = (uint8_t *) malloc(BUF_SIZE);
-
+    uint8_t speed = 0;
     uart_write_bytes(ECHO_UART_PORT_NUM, "Commands", strlen("Commands"));
     while (1)
     {
+        
         // Read data from the UART
         int len = uart_read_bytes(ECHO_UART_PORT_NUM, data, (BUF_SIZE - 1), 20 / portTICK_PERIOD_MS);
         // Write data back to the UART
@@ -216,27 +268,31 @@ static void echo_task(void *arg)
                     break;
                 // === New: Mecanum movement ===
                 case 'W':
-                    move_forward(180);
+                    move_forward(speed);
+                    speed = ( speed + 1) % 255;
+                    char msg3[64];
+                    snprintf(msg3, sizeof(msg3), "Distance: %" PRIu8" cm\n", speed);
+                    uart_write_bytes(ECHO_UART_PORT_NUM, msg3, strlen(msg3));
                     uart_write_bytes(ECHO_UART_PORT_NUM, "Moving Forward\n", strlen("Moving Forward\n"));
                     break;
                 case 'S':
-                    move_backward(180);
+                    move_backward(250);
                     uart_write_bytes(ECHO_UART_PORT_NUM, "Moving Backward\n", strlen("Moving Backward\n"));
                     break;
                 case 'A':
-                    move_left(180);
+                    move_left(250);
                     uart_write_bytes(ECHO_UART_PORT_NUM, "Strafing Left\n", strlen("Strafing Left\n"));
                     break;
                 case 'D':
-                    move_right(180);
+                    move_right(250);
                     uart_write_bytes(ECHO_UART_PORT_NUM, "Strafing Right\n", strlen("Strafing Right\n"));
                     break;
                 case 'Q':
-                    rotate_counterclockwise(180);
+                    rotate_counterclockwise(250);
                     uart_write_bytes(ECHO_UART_PORT_NUM, "Rotating CCW\n", strlen("Rotating CCW\n"));
                     break;
                 case 'E':
-                    rotate_clockwise(180);
+                    rotate_clockwise(250);
                     uart_write_bytes(ECHO_UART_PORT_NUM, "Rotating CW\n", strlen("Rotating CW\n"));
                     break;
                 case 'X':
@@ -337,13 +393,6 @@ void init_mecanum_motors() {
     }
 }
 
-
-// void set_motor(uint8_t channel, gpio_num_t dir_pin, bool forward, uint32_t speed) {
-//     gpio_set_level(dir_pin, forward ? 0 : 1);  // LOW = forward
-//     ledc_set_duty(LEDC_LOW_SPEED_MODE, channel, speed);
-//     ledc_update_duty(LEDC_LOW_SPEED_MODE, channel);
-// }
-
 void set_motor(gpio_num_t in1, gpio_num_t in2, bool forward, uint32_t speed, ledc_channel_t pwm_channel) {
     if (forward) {
         gpio_set_level(in1, 1);  // HIGH
@@ -353,6 +402,9 @@ void set_motor(gpio_num_t in1, gpio_num_t in2, bool forward, uint32_t speed, led
         gpio_set_level(in2, 1);
     }
 
+    if(!forward){
+        speed = 255 - speed; // Invert speed for backward movement
+    }
     // Apply PWM to IN1
     ledc_set_duty(LEDC_LOW_SPEED_MODE, pwm_channel, speed);
     ledc_update_duty(LEDC_LOW_SPEED_MODE, pwm_channel);
@@ -360,76 +412,80 @@ void set_motor(gpio_num_t in1, gpio_num_t in2, bool forward, uint32_t speed, led
 
 // Wheels Helpers
 void move_forward(uint32_t speed) {
-    set_motor(FL_IN1, FL_IN2, true, speed, LEDC_CHANNEL_0);
-    set_motor(FR_IN1, FR_IN2, true, speed, LEDC_CHANNEL_1);
-    set_motor(RL_IN1, RL_IN2, true, speed, LEDC_CHANNEL_2);
-    set_motor(RR_IN1, RR_IN2, true, speed, LEDC_CHANNEL_3);
+    set_motor(FL_IN1, FL_IN2, false, speed, LEDC_CHANNEL_0);
+    set_motor(FR_IN1, FR_IN2, false, speed, LEDC_CHANNEL_1);
+    set_motor(RL_IN1, RL_IN2, false, speed , LEDC_CHANNEL_2);
+    set_motor(RR_IN1, RR_IN2, false, speed, LEDC_CHANNEL_3);
 }
 
 void move_backward(uint32_t speed) {
-    set_motor(FL_IN1, FL_IN2, false, speed, LEDC_CHANNEL_0);
-    set_motor(FR_IN1, FR_IN2, false, speed, LEDC_CHANNEL_1);
-    set_motor(RL_IN1, RL_IN2, false, speed, LEDC_CHANNEL_2);
-    set_motor(RR_IN1, RR_IN2, false, speed, LEDC_CHANNEL_3);
-}
-
-void move_left(uint32_t speed) {
-    set_motor(FL_IN1, FL_IN2, false, speed, LEDC_CHANNEL_0);
+    set_motor(FL_IN1, FL_IN2, true, speed, LEDC_CHANNEL_0);
     set_motor(FR_IN1, FR_IN2, true, speed, LEDC_CHANNEL_1);
     set_motor(RL_IN1, RL_IN2, true, speed, LEDC_CHANNEL_2);
-    set_motor(RR_IN1, RR_IN2, false, speed, LEDC_CHANNEL_3);
-}
-
-void move_right(uint32_t speed) {
-    set_motor(FL_IN1, FL_IN2, true, speed, LEDC_CHANNEL_0);
-    set_motor(FR_IN1, FR_IN2, false, speed, LEDC_CHANNEL_1);
-    set_motor(RL_IN1, RL_IN2, false, speed, LEDC_CHANNEL_2);
     set_motor(RR_IN1, RR_IN2, true, speed, LEDC_CHANNEL_3);
 }
 
-void rotate_clockwise(uint32_t speed) {
-    set_motor(FL_IN1, FL_IN2, true, speed, LEDC_CHANNEL_0);
+void move_right(uint32_t speed) {
+    set_motor(FL_IN1, FL_IN2, false, speed, LEDC_CHANNEL_0);
     set_motor(FR_IN1, FR_IN2, false, speed, LEDC_CHANNEL_1);
     set_motor(RL_IN1, RL_IN2, true, speed, LEDC_CHANNEL_2);
+    set_motor(RR_IN1, RR_IN2, true, speed, LEDC_CHANNEL_3);
+}
+
+void move_left(uint32_t speed) {
+    set_motor(FL_IN1, FL_IN2, true, speed, LEDC_CHANNEL_0);
+    set_motor(FR_IN1, FR_IN2, true, speed, LEDC_CHANNEL_1);
+    set_motor(RL_IN1, RL_IN2, false, speed, LEDC_CHANNEL_2);
     set_motor(RR_IN1, RR_IN2, false, speed, LEDC_CHANNEL_3);
 }
 
 void rotate_counterclockwise(uint32_t speed) {
+    set_motor(FL_IN1, FL_IN2, true, speed, LEDC_CHANNEL_0);
+    set_motor(FR_IN1, FR_IN2, false, speed, LEDC_CHANNEL_1);
+    set_motor(RL_IN1, RL_IN2, true, speed, LEDC_CHANNEL_2);
+    set_motor(RR_IN1, RR_IN2, false, speed, LEDC_CHANNEL_3);
+}
+
+void rotate_clockwise(uint32_t speed) {
     set_motor(FL_IN1, FL_IN2, false, speed, LEDC_CHANNEL_0);
     set_motor(FR_IN1, FR_IN2, true, speed, LEDC_CHANNEL_1);
     set_motor(RL_IN1, RL_IN2, false, speed, LEDC_CHANNEL_2);
     set_motor(RR_IN1, RR_IN2, true, speed, LEDC_CHANNEL_3);
 }
-
 void stop_all_motors() {
     for (int ch = LEDC_CHANNEL_0; ch <= LEDC_CHANNEL_3; ch++) {
         ledc_set_duty(LEDC_LOW_SPEED_MODE, ch, 0);
         ledc_update_duty(LEDC_LOW_SPEED_MODE, ch);
     }
+    gpio_set_level(FL_IN1, 0);  // HIGH
+    gpio_set_level(FL_IN2, 0);  // LOW
+    gpio_set_level(FR_IN1, 0);  // HIGH
+    gpio_set_level(FR_IN2, 0);  // LOW
+    gpio_set_level(RL_IN1, 0);  // HIGH
+    gpio_set_level(RL_IN2, 0);  // LOW
+    gpio_set_level(RR_IN1, 0);  // HIGH
+    gpio_set_level(RR_IN2, 0);  // LOW
 }
 
+// comment out for testing
 void app_main(void)
 {
     gpio_reset_pin(13);
-    // gpio_set_level(DIR_MOTOR, 1);               
-    /* Set the GPIO as a push/pull output */
     gpio_set_direction(13, GPIO_MODE_OUTPUT);
+    blink_led();
+    xTaskCreate(blink_task, "blink_LED", 1024, NULL, 5, &myTaskHandle);
+
+    // SENSOR
     // TOP 
     gpio_set_direction(TRIG_PIN, GPIO_MODE_OUTPUT);
     gpio_set_direction(ECHO_PIN, GPIO_MODE_INPUT);
     // front
     gpio_set_direction(TRIG__front, GPIO_MODE_OUTPUT);
     gpio_set_direction(ECHO__front, GPIO_MODE_INPUT);
-
-    blink_led();
-    
-    init_mecanum_motors();
-
-
-    xTaskCreate(echo_task, "uart_echo_task", ECHO_TASK_STACK_SIZE, NULL, 10, NULL);
-    xTaskCreate(blink_task, "blink_LED", 1024, NULL, 5, &myTaskHandle);
-    vTaskDelay(1000);
     xTaskCreate(read_distance, "read_distance", 2048, NULL, 5, NULL);
-    // xTaskCreate(motor_control, "motor_control", 2048, NULL, 5, NULL);
-    vTaskSuspend(myTaskHandle);
+
+    init_mecanum_motors();
+    xTaskCreate(echo_task, "uart_echo_task", ECHO_TASK_STACK_SIZE, NULL, 10, NULL);
+    xTaskCreate(motor_control, "motor", 2048, NULL, 5, NULL);
+
 }
