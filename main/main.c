@@ -16,6 +16,17 @@
 #include "drivers.h"
 #include "globals.h"
 
+// BLE includes
+#include "nvs_flash.h"
+#include "esp_nimble_hci.h"
+#include "nimble/nimble_port.h"
+#include "nimble/nimble_port_freertos.h"
+#include "host/ble_hs.h"
+#include "services/gap/ble_svc_gap.h"
+#include "services/gatt/ble_svc_gatt.h"
+#include "drivers.h"
+#include "globals.h"
+
 // Define all the global variables declared in globals.h
 TaskHandle_t blink_task_handle = NULL;
 TaskHandle_t motor_control_task_handle = NULL;
