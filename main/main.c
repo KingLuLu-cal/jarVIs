@@ -1,11 +1,3 @@
-/* UART Echo Example with Multitasking
-
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
-
-   Unless required by applicable law or agreed to in writing, this
-   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-   CONDITIONS OF ANY KIND, either express or implied.
-*/
 #include <stdio.h>
 #include "string.h"
 #include "freertos/FreeRTOS.h"
@@ -21,32 +13,30 @@
 #include <inttypes.h>
 #include "pins.h"
 #include "manual.h"
-#include "handles.h"
 #include "drivers.h"
+#include "globals.h"
 
+// Define all the global variables declared in globals.h
+TaskHandle_t blink_task_handle = NULL;
+TaskHandle_t motor_control_task_handle = NULL;
+TaskHandle_t top_sensor_task_handle = NULL;
+TaskHandle_t front_sensor_task_handle = NULL;
+TaskHandle_t echo_task_handle = NULL;
+TaskHandle_t bt_task_handle = NULL;
 
-
-TaskHandle_t blink_task_handle;
-TaskHandle_t motor_control_task_handle;
-TaskHandle_t top_sensor_task_handle;
-TaskHandle_t front_sensor_task_handle;
-TaskHandle_t echo_task_handle;
-TaskHandle_t bt_task_handle;
-
-static uint8_t s_led_state = 1;
-static uint32_t flash_period = DEFAULT_PERIOD;
-static uint32_t flash_period_dec = DEFAULT_PERIOD/10;
+uint8_t s_led_state = 1;
+uint32_t flash_period = DEFAULT_PERIOD;
+uint32_t flash_period_dec = DEFAULT_PERIOD/10;
 
 // Global variables to store sensor readings
-static float top_distance = MAX_DISTANCE;
-static float front_distance = MAX_DISTANCE;
+float top_distance = MAX_DISTANCE;
+float front_distance = MAX_DISTANCE;
 
 // Mutex for protecting access to the shared sensor data
 SemaphoreHandle_t sensor_mutex = NULL;
 
 // Flag for manual intervention
-static volatile bool manual_control_enabled = false;
-
+volatile bool manual_control_enabled = false;
 
 #define BUF_SIZE (1024)
 #define TAG "ROBOT_CONTROL"
@@ -150,6 +140,14 @@ static void motor_control_task(void *arg)
 
 void app_main(void)
 {
+    // Initialize NVS for BLE
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+    
     // Initialize mutex for sensor data protection
     sensor_mutex = xSemaphoreCreateMutex();
     
@@ -190,6 +188,9 @@ void app_main(void)
     xTaskCreate(front_sensor_task, "front_sensor", 2048, NULL, 6, &front_sensor_task_handle);
     xTaskCreate(motor_control_task, "motor_control", 2048, NULL, 5, &motor_control_task_handle);
     xTaskCreate(echo_task, "uart_event", 2048, NULL, 7, &echo_task_handle);
-    start_bt(); // Start Bluetooth task
+    
+    // Start Bluetooth task
+    start_bt();
+    
     ESP_LOGI(TAG, "All tasks created successfully");
 }

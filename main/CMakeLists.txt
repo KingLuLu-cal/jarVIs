@@ -6,4 +6,5 @@ idf_component_register(SRCS
                     "manual.c"
                     "manual.h"
                     "pins.h"
+                    "globals.h"
                     INCLUDE_DIRS ".")
