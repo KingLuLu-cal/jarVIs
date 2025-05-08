@@ -1,0 +1,124 @@
+
+// UART event handler for manual intervention
+static void uart_event_task(void *pvParameters)
+{
+    uart_event_t event;
+    uint8_t* dtmp = (uint8_t*) malloc(BUF_SIZE);
+    
+    for(;;) {
+        if(xQueueReceive(uart_queue, (void *)&event, portMAX_DELAY)) {
+            bzero(dtmp, BUF_SIZE);
+            
+            switch(event.type) {
+                case UART_DATA:
+                    uart_read_bytes(ECHO_UART_PORT_NUM, dtmp, event.size, portMAX_DELAY);
+                    
+                    // Check for manual control commands
+                    if (strstr((char*)dtmp, "MANUAL_START") != NULL) {
+                        ESP_LOGI(TAG, "Manual control enabled");
+                        manual_control_enabled = true;
+                        // Process manual commands here
+                    } 
+                    else if (strstr((char*)dtmp, "MANUAL_STOP") != NULL) {
+                        ESP_LOGI(TAG, "Manual control disabled");
+                        manual_control_enabled = false;
+                    }
+                    else if (manual_control_enabled) {
+                        // Process other manual commands
+                        if (strstr((char*)dtmp, "FORWARD") != NULL) {
+                            move_forward(200);
+                        } 
+                        else if (strstr((char*)dtmp, "BACKWARD") != NULL) {
+                            move_backward(200);
+                        }
+                        else if (strstr((char*)dtmp, "LEFT") != NULL) {
+                            move_left(200);
+                        }
+                        else if (strstr((char*)dtmp, "RIGHT") != NULL) {
+                            move_right(200);
+                        }
+                        else if (strstr((char*)dtmp, "STOP") != NULL) {
+                            stop_all_motors();
+                        }
+                    }
+                    
+                    // Echo back for debugging
+                    uart_write_bytes(ECHO_UART_PORT_NUM, (const char*) dtmp, event.size);
+                    break;
+                    
+                default:
+                    break;
+            }
+        }
+    }
+    
+    free(dtmp);
+    dtmp = NULL;
+    vTaskDelete(NULL);
+}
+
+
+void app_main(void)
+{
+    // Initialize NVS for BLE
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+    
+    // Initialize mutex for sensor data protection
+    sensor_mutex = xSemaphoreCreateMutex();
+    
+    // Create queue for BT commands
+    bt_cmd_queue = xQueueCreate(BT_CMD_QUEUE_SIZE, BT_CMD_MAX_LEN);
+    
+    // LED setup
+    gpio_reset_pin(13);
+    gpio_set_direction(13, GPIO_MODE_OUTPUT);
+    blink_led();
+    
+    // Sensor pins setup
+    // TOP sensor
+    gpio_set_direction(TRIG_PIN, GPIO_MODE_OUTPUT);
+    gpio_set_direction(ECHO_PIN, GPIO_MODE_INPUT);
+    // Front sensor
+    gpio_set_direction(TRIG__front, GPIO_MODE_OUTPUT);
+    gpio_set_direction(ECHO__front, GPIO_MODE_INPUT);
+    
+    // Initialize motors
+    init_mecanum_motors();
+    
+    // Create sensor and motor tasks
+    xTaskCreate(blink_task, "blink_LED", 1024, NULL, 5, &blink_task_handle);
+    xTaskCreate(top_sensor_task, "top_sensor", 2048, NULL, 6, &top_sensor_task_handle);
+    xTaskCreate(front_sensor_task, "front_sensor", 2048, NULL, 6, &front_sensor_task_handle);
+    xTaskCreate(motor_control_task, "motor_control", 2048, NULL, 5, &motor_control_task_handle);
+    xTaskCreate(echo_task, "uart_echo_task", ECHO_TASK_STACK_SIZE, NULL, 5, &echo_task_handle);
+    
+    // Initialize BLE
+    nimble_port_init();                        // Initialize the host stack
+    ble_svc_gap_device_name_set("ESP32-Robot"); // Set BLE device name
+    ble_svc_gap_init();                        // Initialize NimBLE configuration - gap service
+    ble_svc_gatt_init();                       // Initialize NimBLE configuration - gatt service
+    ble_gatts_count_cfg(gatt_svcs);            // Initialize NimBLE configuration - config gatt services
+    ble_gatts_add_svcs(gatt_svcs);             // Initialize NimBLE configuration - queues gatt services.
+    ble_hs_cfg.sync_cb = ble_app_on_sync;      // Initialize application
+    
+    // Create BT command processing task
+    xTaskCreate(bt_task, "bt_cmd_task", 2048, NULL, 5, &bt_task_handle);
+    
+    // Start the BLE host task
+    nimble_port_freertos_init(host_task);
+    
+    ESP_LOGI(TAG, "All tasks created successfully");
+}
+
+// Task handles
+TaskHandle_t blink_task_handle = NULL;
+TaskHandle_t top_sensor_task_handle = NULL;
+TaskHandle_t front_sensor_task_handle = NULL;
+TaskHandle_t motor_control_task_handle = NULL;
+TaskHandle_t echo_task_handle = NULL;
+TaskHandle_t bt_task_handle = NULL;
