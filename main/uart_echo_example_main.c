@@ -467,25 +467,25 @@ void stop_all_motors() {
     gpio_set_level(RR_IN2, 0);  // LOW
 }
 
-// comment out for testing
-void app_main(void)
-{
-    gpio_reset_pin(13);
-    gpio_set_direction(13, GPIO_MODE_OUTPUT);
-    blink_led();
-    xTaskCreate(blink_task, "blink_LED", 1024, NULL, 5, &myTaskHandle);
+// // comment out for testing
+// void app_main(void)
+// {
+//     gpio_reset_pin(13);
+//     gpio_set_direction(13, GPIO_MODE_OUTPUT);
+//     blink_led();
+//     xTaskCreate(blink_task, "blink_LED", 1024, NULL, 5, &myTaskHandle);
 
-    // SENSOR
-    // TOP 
-    gpio_set_direction(TRIG_PIN, GPIO_MODE_OUTPUT);
-    gpio_set_direction(ECHO_PIN, GPIO_MODE_INPUT);
-    // front
-    gpio_set_direction(TRIG__front, GPIO_MODE_OUTPUT);
-    gpio_set_direction(ECHO__front, GPIO_MODE_INPUT);
-    xTaskCreate(read_distance, "read_distance", 2048, NULL, 5, NULL);
+//     // SENSOR
+//     // TOP 
+//     gpio_set_direction(TRIG_PIN, GPIO_MODE_OUTPUT);
+//     gpio_set_direction(ECHO_PIN, GPIO_MODE_INPUT);
+//     // front
+//     gpio_set_direction(TRIG__front, GPIO_MODE_OUTPUT);
+//     gpio_set_direction(ECHO__front, GPIO_MODE_INPUT);
+//     xTaskCreate(read_distance, "read_distance", 2048, NULL, 5, NULL);
 
-    init_mecanum_motors();
-    xTaskCreate(echo_task, "uart_echo_task", ECHO_TASK_STACK_SIZE, NULL, 10, NULL);
-    xTaskCreate(motor_control, "motor", 2048, NULL, 5, NULL);
+//     init_mecanum_motors();
+//     xTaskCreate(echo_task, "uart_echo_task", ECHO_TASK_STACK_SIZE, NULL, 10, NULL);
+//     xTaskCreate(motor_control, "motor", 2048, NULL, 5, NULL);
 
-}
+// }
