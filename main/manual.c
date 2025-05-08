@@ -30,6 +30,8 @@
 #include "host/ble_hs.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
+#include "handles.h"
+#include "drivers.h"
 
 static uint8_t s_led_state = 1;
 static uint32_t flash_period = DEFAULT_PERIOD;
@@ -51,7 +53,7 @@ uint8_t ble_addr_type;
 void ble_app_advertise(void);
 
 // Write data to ESP32 defined as server
-static int device_write(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg)
+int device_write(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
     char bt_data[BT_CMD_MAX_LEN];
     
@@ -77,17 +79,17 @@ static int device_read(uint16_t con_handle, uint16_t attr_handle, struct ble_gat
 {
     // Read sensor data with mutex protection
     float top, front;
-    if (xSemaphoreTake(sensor_mutex, portMAX_DELAY) == pdTRUE) {
-        top = top_distance;
-        front = front_distance;
-        xSemaphoreGive(sensor_mutex);
-    }
+    // if (xSemaphoreTake(sensor_mutex, portMAX_DELAY) == pdTRUE) {
+    //     top = top_distance;
+    //     front = front_distance;
+    //     xSemaphoreGive(sensor_mutex);
+    // }
     
     // Format sensor data for response
     char response[64];
-    snprintf(response, sizeof(response), "Top: %.2f cm, Front: %.2f cm", top, front);
+    // snprintf(response, sizeof(response), "Top: %.2f cm, Front: %.2f cm", top, front);
     
-    os_mbuf_append(ctxt->om, response, strlen(response));
+    // os_mbuf_append(ctxt->om, response, strlen(response));
     return 0;
 }
 
@@ -199,12 +201,12 @@ static void bt_task(void *arg)
                 // Handle the same commands as in the UART task
                 if (strcmp(bt_data, "LIGHT ON") == 0) {
                     s_led_state = 1;
-                    blink_led();
+                    blink_led(s_led_state);
                     ESP_LOGI(TAG, "BT: Light turned ON");
                 }
                 else if (strcmp(bt_data, "LIGHT OFF") == 0) {
                     s_led_state = 0;
-                    blink_led();
+                    blink_led(s_led_state);
                     ESP_LOGI(TAG, "BT: Light turned OFF");
                 }
                 else if (strcmp(bt_data, "FAN ON") == 0) {
@@ -247,22 +249,22 @@ static void bt_task(void *arg)
                     ESP_LOGI(TAG, "BT: Mecanum Motors Stopped");
                 }
                 // Sensor readings
-                else if (strcmp(bt_data, "READ_TOP") == 0) {
-                    float distance;
-                    if (xSemaphoreTake(sensor_mutex, portMAX_DELAY) == pdTRUE) {
-                        distance = top_distance;
-                        xSemaphoreGive(sensor_mutex);
-                    }
-                    ESP_LOGI(TAG, "BT: Top sensor reading: %.2f cm", distance);
-                }
-                else if (strcmp(bt_data, "READ_FRONT") == 0) {
-                    float distance;
-                    if (xSemaphoreTake(sensor_mutex, portMAX_DELAY) == pdTRUE) {
-                        distance = front_distance;
-                        xSemaphoreGive(sensor_mutex);
-                    }
-                    ESP_LOGI(TAG, "BT: Front sensor reading: %.2f cm", distance);
-                }
+                // else if (strcmp(bt_data, "READ_TOP") == 0) {
+                //     float distance;
+                //     if (xSemaphoreTake(sensor_mutex, portMAX_DELAY) == pdTRUE) {
+                //         distance = top_distance;
+                //         xSemaphoreGive(sensor_mutex);
+                //     }
+                //     ESP_LOGI(TAG, "BT: Top sensor reading: %.2f cm", distance);
+                // }
+                // else if (strcmp(bt_data, "READ_FRONT") == 0) {
+                //     float distance;
+                //     if (xSemaphoreTake(sensor_mutex, portMAX_DELAY) == pdTRUE) {
+                //         distance = front_distance;
+                //         xSemaphoreGive(sensor_mutex);
+                //     }
+                //     ESP_LOGI(TAG, "BT: Front sensor reading: %.2f cm", distance);
+                // }
                 else {
                     ESP_LOGW(TAG, "BT: Unknown command: %s", bt_data);
                 }
@@ -271,7 +273,7 @@ static void bt_task(void *arg)
     }
 }
 
-static void echo_task(void *arg)
+void echo_task(void *arg)
 {
     /* Configure parameters of an UART driver,
      * communication pins and install the driver */
@@ -312,7 +314,7 @@ static void echo_task(void *arg)
             {
                 case 'I':
                     s_led_state = 1;
-                    blink_led();
+                    blink_led(s_led_state);
                     uart_write_bytes(ECHO_UART_PORT_NUM, "ESP32\n", strlen("ESP32\n"));
                     break;
                 case 'T':
@@ -327,10 +329,10 @@ static void echo_task(void *arg)
                     break;
                 case 'M':  // Manual control toggle
                     if (manual_control_enabled) {
-                        manual_control_enabled = false;
-                        vTaskResume(motor_control_task_handle);
-                        uart_write_bytes(ECHO_UART_PORT_NUM, "Auto mode enabled\n", strlen("Auto mode enabled\n"));
-                    } else {
+                    //     manual_control_enabled = false;
+                    //     vTaskResume(motor_control_task_handle);
+                    //     uart_write_bytes(ECHO_UART_PORT_NUM, "Auto mode enabled\n", strlen("Auto mode enabled\n"));
+                    // } else {
                         manual_control_enabled = true;
                         vTaskSuspend(motor_control_task_handle);
                         uart_write_bytes(ECHO_UART_PORT_NUM, "Manual mode enabled\n", strlen("Manual mode enabled\n"));
@@ -407,11 +409,11 @@ static void echo_task(void *arg)
                     break;
                 case 'O': 
                     {
-                        float dist;
-                        if (xSemaphoreTake(sensor_mutex, portMAX_DELAY) == pdTRUE) {
-                            dist = top_distance;
-                            xSemaphoreGive(sensor_mutex);
-                        }
+                        float dist = -1.0;
+                        // if (xSemaphoreTake(sensor_mutex, portMAX_DELAY) == pdTRUE) {
+                        //     dist = top_distance;
+                        //     xSemaphoreGive(sensor_mutex);
+                        // }
                         char msg2[64];
                         if (dist < 0) {
                             snprintf(msg2, sizeof(msg2), "Top sensor: Out of range\n");
@@ -423,11 +425,11 @@ static void echo_task(void *arg)
                     break;
                 case 'F': 
                     {
-                        float dist;
-                        if (xSemaphoreTake(sensor_mutex, portMAX_DELAY) == pdTRUE) {
-                            dist = front_distance;
-                            xSemaphoreGive(sensor_mutex);
-                        }
+                        float dist = -1.0;
+                        // if (xSemaphoreTake(sensor_mutex, portMAX_DELAY) == pdTRUE) {
+                        //     dist = front_distance;
+                        //     xSemaphoreGive(sensor_mutex);
+                        // }
                         char msg[64];
                         if (dist < 0) {
                             snprintf(msg, sizeof(msg), "Front sensor: Out of range\n");
@@ -444,3 +446,20 @@ static void echo_task(void *arg)
     }
 }
 
+
+void start_bt(){
+        // Initialize BLE
+        nimble_port_init();                        // Initialize the host stack
+        ble_svc_gap_device_name_set("ESP32-Robot"); // Set BLE device name
+        ble_svc_gap_init();                        // Initialize NimBLE configuration - gap service
+        ble_svc_gatt_init();                       // Initialize NimBLE configuration - gatt service
+        ble_gatts_count_cfg(gatt_svcs);            // Initialize NimBLE configuration - config gatt services
+        ble_gatts_add_svcs(gatt_svcs);             // Initialize NimBLE configuration - queues gatt services.
+        ble_hs_cfg.sync_cb = ble_app_on_sync;      // Initialize application
+        
+        // Create BT command processing task
+        xTaskCreate(bt_task, "bt_cmd_task", 2048, NULL, 5, &bt_task_handle);
+        
+        // Start the BLE host task
+        nimble_port_freertos_init(host_task);    
+}

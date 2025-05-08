@@ -1,2 +1,9 @@
-idf_component_register(SRCS "manual.c" "uart_echo_example_main.c" "bt_test.c"
+
+idf_component_register(SRCS 
+                    "drivers.c"
+                    "drivers.h"
+                    "main.c"
+                    "manual.c"
+                    "manual.h"
+                    "pins.h"
                     INCLUDE_DIRS ".")

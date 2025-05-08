@@ -20,7 +20,7 @@
 #include <inttypes.h>
 #include "pins.h"
 
-static float get_distance_cm(uint32_t trig, uint32_t echo)
+float get_distance_cm(uint32_t trig, uint32_t echo)
 {
     // Send trigger pulse
     gpio_set_level(trig, 0);
@@ -148,4 +148,10 @@ void stop_all_motors() {
     gpio_set_level(RL_IN2, 0);  // LOW
     gpio_set_level(RR_IN1, 0);  // HIGH
     gpio_set_level(RR_IN2, 0);  // LOW
+}
+
+void blink_led(uint8_t s_led_state)
+{
+    /* Set the GPIO level according to the state (LOW or HIGH)*/
+    gpio_set_level(13, s_led_state);
 }

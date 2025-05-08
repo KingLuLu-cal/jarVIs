@@ -21,6 +21,17 @@
 #include <inttypes.h>
 #include "pins.h"
 #include "manual.h"
+#include "handles.h"
+#include "drivers.h"
+
+
+
+TaskHandle_t blink_task_handle;
+TaskHandle_t motor_control_task_handle;
+TaskHandle_t top_sensor_task_handle;
+TaskHandle_t front_sensor_task_handle;
+TaskHandle_t echo_task_handle;
+TaskHandle_t bt_task_handle;
 
 static uint8_t s_led_state = 1;
 static uint32_t flash_period = DEFAULT_PERIOD;
@@ -36,28 +47,16 @@ SemaphoreHandle_t sensor_mutex = NULL;
 // Flag for manual intervention
 static volatile bool manual_control_enabled = false;
 
-// Task handles
-TaskHandle_t blink_task_handle = NULL;
-TaskHandle_t top_sensor_task_handle = NULL;
-TaskHandle_t front_sensor_task_handle = NULL;
-TaskHandle_t motor_control_task_handle = NULL;
-TaskHandle_t echo_task_handle = NULL;
 
 #define BUF_SIZE (1024)
 #define TAG "ROBOT_CONTROL"
-
-static void blink_led(void)
-{
-    /* Set the GPIO level according to the state (LOW or HIGH)*/
-    gpio_set_level(13, s_led_state);
-}
 
 static void blink_task(void *arg)
 {
     while(1)
     {
         s_led_state = !s_led_state;
-        blink_led();
+        blink_led(s_led_state);
         vTaskDelay(flash_period / portTICK_PERIOD_MS);
     }
 }
@@ -99,7 +98,8 @@ static void front_sensor_task(void *arg)
 static void motor_control_task(void *arg)
 {
     ESP_LOGI(TAG, "Motor control task started");
-    float top, front;
+    float top = -1.0; 
+    float front = -1.0;
     char msg[128];
     
     while (1)
@@ -164,14 +164,14 @@ void app_main(void)
     };
     
     // Install UART driver and create UART event queue
-    uart_driver_install(ECHO_UART_PORT_NUM, BUF_SIZE * 2, BUF_SIZE * 2, 20, &uart_queue, 0);
+    uart_driver_install(ECHO_UART_PORT_NUM, BUF_SIZE * 2, BUF_SIZE * 2, 20, NULL, 0);
     uart_param_config(ECHO_UART_PORT_NUM, &uart_config);
     uart_set_pin(ECHO_UART_PORT_NUM, ECHO_TEST_TXD, ECHO_TEST_RXD, ECHO_TEST_RTS, ECHO_TEST_CTS);
     
     // LED setup
     gpio_reset_pin(13);
     gpio_set_direction(13, GPIO_MODE_OUTPUT);
-    blink_led();
+    blink_led(s_led_state);
     
     // Sensor pins setup
     // TOP sensor
@@ -189,7 +189,7 @@ void app_main(void)
     xTaskCreate(top_sensor_task, "top_sensor", 2048, NULL, 6, &top_sensor_task_handle);
     xTaskCreate(front_sensor_task, "front_sensor", 2048, NULL, 6, &front_sensor_task_handle);
     xTaskCreate(motor_control_task, "motor_control", 2048, NULL, 5, &motor_control_task_handle);
-    // xTaskCreate(uart_event_task, "uart_event", 2048, NULL, 7, &echo_task_handle);
-    
+    xTaskCreate(echo_task, "uart_event", 2048, NULL, 7, &echo_task_handle);
+    start_bt(); // Start Bluetooth task
     ESP_LOGI(TAG, "All tasks created successfully");
 }

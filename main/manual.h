@@ -1,4 +1,2 @@
-
-
-static void echo_task(void *arg);
-static void bt_task(void *arg);
+void echo_task(void *arg);
+void start_bt();

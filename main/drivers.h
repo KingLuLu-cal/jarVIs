@@ -8,4 +8,6 @@ void move_right(uint32_t speed);
 void rotate_clockwise(uint32_t speed);
 void rotate_counterclockwise(uint32_t speed);
 void stop_all_motors(void);
-static float get_distance_cm();
+float get_distance_cm();
+void blink_led(uint8_t s_led_state);
+void init_mecanum_motors();
