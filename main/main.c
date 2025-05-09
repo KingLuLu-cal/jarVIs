@@ -189,13 +189,21 @@ static void front_sensor_task(void *arg)
     }
 }
 
+typedef enum {
+    AE_SLOW,
+    AE_SCURRY,
+    AE_SPEED_AWAY,
+    AE_STOP,
+} motor_state_t;
+
 static void motor_control_task(void *arg)
 {
     #define MOTOR_TAG "MOTOR_CTRL"
     ESP_LOGI(MOTOR_TAG, "Motor logic task started");
 
-    float top = -1.0; 
+    float top = -1.0;
     float front = -1.0;
+    motor_state_t state;
 
     while (1)
     {
@@ -204,32 +212,43 @@ static void motor_control_task(void *arg)
             continue;
         }
 
+        // Acquire sensor values
         if (xSemaphoreTake(sensor_mutex, portMAX_DELAY) == pdTRUE) {
             top = top_distance;
             front = front_distance;
             xSemaphoreGive(sensor_mutex);
         }
 
+        // Determine state
         if (front > 0 && front < 40) {
-            if (top > MIN_DISTANCE && top < 50) {
+            state = (top > MIN_DISTANCE && top < 50) ? AE_SCURRY : AE_STOP;
+        } else {
+            state = (top > MIN_DISTANCE && top < 50) ? AE_SPEED_AWAY : AE_SLOW;
+        }
+
+        // Act on state
+        switch (state)
+        {
+            case AE_SCURRY:
                 rotate_counterclockwise(250);
                 vTaskDelay(500 / portTICK_PERIOD_MS);
-                // ESP_LOGI(MOTOR_TAG, "Top: %.2f cm, Front: %.2f cm → GO LEFT", top, front);
-            } else {
-                stop_all_motors();
-                // ESP_LOGI(MOTOR_TAG, "Top: %.2f cm, Front: %.2f cm → STOP", top, front);
-            }
-        } else {
-            if (top > MIN_DISTANCE && top < 50) {
-                uint32_t duty = (MAX_DISTANCE - top) / (MAX_DISTANCE - MIN_DISTANCE) * 255 ;
-                move_forward(duty);
-                // ESP_LOGI(MOTOR_TAG, "Top: %.2f cm, Front: %.2f cm → FORWARD at duty %" PRIu32, top, front, duty);
-            } else {
-                move_forward(current_speed);
-                ESP_LOGI("MOTOR_CTRL", "Moving forward at speed %lu", current_speed);
+                break;
 
-                // ESP_LOGI(MOTOR_TAG, "Top: %.2f cm, Front: %.2f cm → EXPLORING", top, front);
+            case AE_STOP:
+                stop_all_motors();
+                break;
+
+            case AE_SPEED_AWAY: {
+                uint32_t duty = (MAX_DISTANCE - top) / (MAX_DISTANCE - MIN_DISTANCE) * 255;
+                move_forward(duty);
+                break;
             }
+
+            case AE_SLOW:
+            default:
+                move_forward(current_speed);
+                ESP_LOGI(MOTOR_TAG, "Moving forward at speed %lu", current_speed);
+                break;
         }
 
         vTaskDelay(100 / portTICK_PERIOD_MS);

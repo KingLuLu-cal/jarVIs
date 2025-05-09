@@ -296,11 +296,11 @@ create_btn(bottom_row, "↓ Backward", "Backward")
 manual_frame = ttk.LabelFrame(right_panel, text="Manual Control", padding="10")
 manual_frame.pack(fill=tk.X, pady=5)
 
-manual_start_btn = ttk.Button(manual_frame, text="Enable Manual Mode",
+manual_start_btn = ttk.Button(manual_frame, text="Manual Mode",
     command=lambda: on_control_press('MANUAL_START'))
 manual_start_btn.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill=tk.X)
 
-manual_stop_btn = ttk.Button(manual_frame, text="Disable Manual Mode",
+manual_stop_btn = ttk.Button(manual_frame, text="Autonomous Mode",
     command=lambda: on_control_press('MANUAL_STOP'))
 manual_stop_btn.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill=tk.X)
 
