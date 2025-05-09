@@ -20,32 +20,6 @@
 #include <inttypes.h>
 #include "pins.h"
 
-float get_distance_cm(uint32_t trig, uint32_t echo)
-{
-    // Send trigger pulse
-    gpio_set_level(trig, 0);
-    ets_delay_us(2);
-    gpio_set_level(trig, 1);
-    ets_delay_us(10);
-    gpio_set_level(trig, 0);
-
-    // Wait for echo to go HIGH
-    uint32_t timeout = 30000; // 30ms timeout
-    uint32_t start = esp_timer_get_time();
-    while (gpio_get_level(echo) == 0) {
-        if ((esp_timer_get_time() - start) > timeout) return -1;
-    }
-
-    int64_t echo_start = esp_timer_get_time();
-    while (gpio_get_level(echo) == 1) {
-        if ((esp_timer_get_time() - echo_start) > timeout) return -1;
-    }
-    int64_t echo_end = esp_timer_get_time();
-
-    float distance = (echo_end - echo_start) * 0.034 / 2.0;
-    return distance;
-}
-
 void init_mecanum_motors() {
     // Set all IN2 (DIR) pins as digital outputs
     gpio_set_direction(FL_IN2, GPIO_MODE_OUTPUT);

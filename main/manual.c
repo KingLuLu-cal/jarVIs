@@ -41,6 +41,11 @@ QueueHandle_t bt_cmd_queue = NULL;
 
 char *BLE_TAG = "BLE-Server";
 uint8_t ble_addr_type;
+
+// Define the current speed as a global variable
+uint32_t current_speed = 180;  // Default speed (midpoint of 120-250)
+
+
 void ble_app_advertise(void);
 
 // Write data to ESP32 defined as server
@@ -65,21 +70,23 @@ int device_write(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_acc
     return 0;
 }
 
-// Read data from ESP32 defined as server
 static int device_read(uint16_t con_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
-    // Read sensor data with mutex protection
-    float top = -1.0, front = -1.0;
+    // Choose sensor based on `arg`
+    const char* sensor_type = (const char*)arg;
+
+    float value = -1.0;
     if (xSemaphoreTake(sensor_mutex, portMAX_DELAY) == pdTRUE) {
-        top = top_distance;
-        front = front_distance;
+        if (strcmp(sensor_type, "TOP") == 0) {
+            value = top_distance;
+        } else if (strcmp(sensor_type, "FRONT") == 0) {
+            value = front_distance;
+        }
         xSemaphoreGive(sensor_mutex);
     }
-    
-    // Format sensor data for response
+
     char response[64];
-    snprintf(response, sizeof(response), "Top: %.2f cm, Front: %.2f cm", top, front);
-    
+    snprintf(response, sizeof(response), "%s: %.2f cm", sensor_type, value);
     os_mbuf_append(ctxt->om, response, strlen(response));
     return 0;
 }
@@ -88,15 +95,26 @@ static int device_read(uint16_t con_handle, uint16_t attr_handle, struct ble_gat
 // UUID - Universal Unique Identifier
 static const struct ble_gatt_svc_def gatt_svcs[] = {
     {.type = BLE_GATT_SVC_TYPE_PRIMARY,
-     .uuid = BLE_UUID16_DECLARE(0x180),                 // Define UUID for device type
+     .uuid = BLE_UUID16_DECLARE(0x180), // Custom service
      .characteristics = (struct ble_gatt_chr_def[]){
-         {.uuid = BLE_UUID16_DECLARE(0xFEF4),           // Define UUID for reading
-          .flags = BLE_GATT_CHR_F_READ,
-          .access_cb = device_read},
-         {.uuid = BLE_UUID16_DECLARE(0xDEAD),           // Define UUID for writing
-          .flags = BLE_GATT_CHR_F_WRITE,
-          .access_cb = device_write},
-         {0}}},
+        {
+            .uuid = BLE_UUID128_DECLARE(0x12,0x34,0x56,0x78,0x90,0xab,0xcd,0xef,0xfe,0xdc,0xba,0x09,0x87,0x65,0x43,0x21),
+            .flags = BLE_GATT_CHR_F_READ,
+            .access_cb = device_read,
+            .arg = (void*)"TOP"
+        },
+        {
+            .uuid = BLE_UUID128_DECLARE(0x21,0x43,0x65,0x87,0x09,0xba,0xdc,0xfe,0xef,0xcd,0xab,0x90,0x78,0x56,0x34,0x12),
+            .flags = BLE_GATT_CHR_F_READ,
+            .access_cb = device_read,
+            .arg = (void*)"FRONT"
+         },
+        {
+            .uuid = BLE_UUID16_DECLARE(0xDEAD),
+            .flags = BLE_GATT_CHR_F_WRITE,
+            .access_cb = device_write
+        },
+        {0}}},
     {0}};
 
 // BLE event handling
@@ -166,13 +184,12 @@ static void bt_task(void *arg)
 {
     ESP_LOGI(TAG, "BT command processing task started");
     char bt_data[BT_CMD_MAX_LEN];
-    uint8_t speed = 0;
-    
+
     while (1) {
         // Wait for a command from the queue
         if (xQueueReceive(bt_cmd_queue, &bt_data, portMAX_DELAY)) {
             ESP_LOGI(TAG, "BT command received: %s", bt_data);
-            
+
             // Process special commands first
             if (strcmp(bt_data, "MANUAL_START") == 0) {
                 ESP_LOGI(TAG, "Manual control enabled via BT");
@@ -186,252 +203,52 @@ static void bt_task(void *arg)
                 vTaskResume(motor_control_task_handle);
                 continue;
             }
-            
+
+            // Handle speed update command
+            if (bt_data[0] == 'V') {  // Speed update command
+                uint32_t new_speed = atoi(&bt_data[1]);  // Extract speed value
+                if (new_speed >= 120 && new_speed <= 250) {
+                    current_speed = new_speed;
+                    ESP_LOGI(TAG, "BT: Speed updated to %lu", current_speed);
+                } else {
+                    ESP_LOGW(TAG, "BT: Invalid speed value: %lu", new_speed);
+                }
+                continue;
+            }
+
             // For manual movement commands
             if (manual_control_enabled) {
-                // Handle the same commands as in the UART task
-                if (strcmp(bt_data, "LIGHT ON") == 0) {
-                    s_led_state = 1;
-                    blink_led(s_led_state);
-                    ESP_LOGI(TAG, "BT: Light turned ON");
-                }
-                else if (strcmp(bt_data, "LIGHT OFF") == 0) {
-                    s_led_state = 0;
-                    blink_led(s_led_state);
-                    ESP_LOGI(TAG, "BT: Light turned OFF");
-                }
-                else if (strcmp(bt_data, "FAN ON") == 0) {
-                    // For demonstration, we'll reuse this command to resume the blink task
-                    vTaskResume(blink_task_handle);
-                    ESP_LOGI(TAG, "BT: Blink task resumed");
-                }
-                else if (strcmp(bt_data, "FAN OFF") == 0) {
-                    // For demonstration, we'll reuse this command to suspend the blink task
-                    vTaskSuspend(blink_task_handle);
-                    ESP_LOGI(TAG, "BT: Blink task suspended");
-                }
-                // Movement commands
-                else if (strcmp(bt_data, "FORWARD") == 0) {
-                    move_forward(250);
+                if (strcmp(bt_data, "FORWARD") == 0) {
+                    move_forward(current_speed);
                     ESP_LOGI(TAG, "BT: Moving Forward");
                 }
                 else if (strcmp(bt_data, "BACKWARD") == 0) {
-                    move_backward(250);
+                    move_backward(current_speed);
                     ESP_LOGI(TAG, "BT: Moving Backward");
                 }
                 else if (strcmp(bt_data, "LEFT") == 0) {
-                    move_left(250);
+                    move_left(current_speed);
                     ESP_LOGI(TAG, "BT: Strafing Left");
                 }
                 else if (strcmp(bt_data, "RIGHT") == 0) {
-                    move_right(250);
+                    move_right(current_speed);
                     ESP_LOGI(TAG, "BT: Strafing Right");
                 }
                 else if (strcmp(bt_data, "ROTATE_CCW") == 0) {
-                    rotate_counterclockwise(250);
+                    rotate_counterclockwise(current_speed);
                     ESP_LOGI(TAG, "BT: Rotating CCW");
                 }
                 else if (strcmp(bt_data, "ROTATE_CW") == 0) {
-                    rotate_clockwise(250);
+                    rotate_clockwise(current_speed);
                     ESP_LOGI(TAG, "BT: Rotating CW");
                 }
                 else if (strcmp(bt_data, "STOP") == 0) {
                     stop_all_motors();
                     ESP_LOGI(TAG, "BT: Mecanum Motors Stopped");
                 }
-                // Sensor readings
-                else if (strcmp(bt_data, "READ_TOP") == 0) {
-                    float distance = -1.0;
-                    if (xSemaphoreTake(sensor_mutex, portMAX_DELAY) == pdTRUE) {
-                        distance = top_distance;
-                        xSemaphoreGive(sensor_mutex);
-                    }
-                    ESP_LOGI(TAG, "BT: Top sensor reading: %.2f cm", distance);
-                }
-                else if (strcmp(bt_data, "READ_FRONT") == 0) {
-                    float distance = -1.0;
-                    if (xSemaphoreTake(sensor_mutex, portMAX_DELAY) == pdTRUE) {
-                        distance = front_distance;
-                        xSemaphoreGive(sensor_mutex);
-                    }
-                    ESP_LOGI(TAG, "BT: Front sensor reading: %.2f cm", distance);
-                }
                 else {
                     ESP_LOGW(TAG, "BT: Unknown command: %s", bt_data);
                 }
-            }
-        }
-    }
-}
-
-void echo_task(void *arg)
-{
-    /* Configure parameters of an UART driver,
-     * communication pins and install the driver */
-    uart_config_t uart_config = {
-        .baud_rate = ECHO_UART_BAUD_RATE,
-        .data_bits = UART_DATA_8_BITS,
-        .parity    = UART_PARITY_DISABLE,
-        .stop_bits = UART_STOP_BITS_1,
-        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-        .source_clk = UART_SCLK_DEFAULT,
-    };
-    int intr_alloc_flags = 0;
-
-    #if CONFIG_UART_ISR_IN_IRAM
-        intr_alloc_flags = ESP_INTR_FLAG_IRAM;
-    #endif
-
-    ESP_ERROR_CHECK(uart_driver_install(ECHO_UART_PORT_NUM, BUF_SIZE * 2, 0, 0, NULL, intr_alloc_flags));
-    ESP_ERROR_CHECK(uart_param_config(ECHO_UART_PORT_NUM, &uart_config));
-    ESP_ERROR_CHECK(uart_set_pin(ECHO_UART_PORT_NUM, ECHO_TEST_TXD, ECHO_TEST_RXD, ECHO_TEST_RTS, ECHO_TEST_CTS));
-
-    // Configure a temporary buffer for the incoming data
-    uint8_t *data = (uint8_t *) malloc(BUF_SIZE);
-    uint8_t speed = 0;
-    uart_write_bytes(ECHO_UART_PORT_NUM, "Commands\n", strlen("Commands\n"));
-    while (1)
-    {
-        // Read data from the UART
-        int len = uart_read_bytes(ECHO_UART_PORT_NUM, data, (BUF_SIZE - 1), 20 / portTICK_PERIOD_MS);
-        
-        if (len)
-        {
-            data[len] = '\0';
-            // Echo back for confirmation
-            uart_write_bytes(ECHO_UART_PORT_NUM, (const char *) data, len);
-            
-            switch(data[0])
-            {
-                case 'I':
-                    s_led_state = 1;
-                    blink_led(s_led_state);
-                    uart_write_bytes(ECHO_UART_PORT_NUM, "ESP32\n", strlen("ESP32\n"));
-                    break;
-                case 'T':
-                    flash_period -= flash_period_dec;
-                    if(flash_period <= flash_period_dec) flash_period = flash_period_dec;
-                    break;
-                case 'B':
-                    vTaskSuspend(blink_task_handle);
-                    break;
-                case 'R':
-                    flash_period = DEFAULT_PERIOD;
-                    break;
-                case 'M':  // Manual control toggle
-                    if (manual_control_enabled) {
-                        manual_control_enabled = false;
-                        vTaskResume(motor_control_task_handle);
-                        uart_write_bytes(ECHO_UART_PORT_NUM, "Auto mode enabled\n", strlen("Auto mode enabled\n"));
-                    } else {
-                        manual_control_enabled = true;
-                        vTaskSuspend(motor_control_task_handle);
-                        uart_write_bytes(ECHO_UART_PORT_NUM, "Manual mode enabled\n", strlen("Manual mode enabled\n"));
-                    }
-                    break;
-                // === Mecanum movement ===
-                case 'W':
-                    if (manual_control_enabled) {
-                        move_forward(speed);
-                        speed = (speed + 10) % 255;
-                        if (speed < 100) speed = 100;  // Minimum speed for movement
-                        char msg3[64];
-                        snprintf(msg3, sizeof(msg3), "Speed: %" PRIu8 "\n", speed);
-                        uart_write_bytes(ECHO_UART_PORT_NUM, msg3, strlen(msg3));
-                        uart_write_bytes(ECHO_UART_PORT_NUM, "Moving Forward\n", strlen("Moving Forward\n"));
-                    } else {
-                        uart_write_bytes(ECHO_UART_PORT_NUM, "Enable manual mode first\n", 
-                                        strlen("Enable manual mode first\n"));
-                    }
-                    break;
-                case 'S':
-                    if (manual_control_enabled) {
-                        move_backward(250);
-                        uart_write_bytes(ECHO_UART_PORT_NUM, "Moving Backward\n", strlen("Moving Backward\n"));
-                    } else {
-                        uart_write_bytes(ECHO_UART_PORT_NUM, "Enable manual mode first\n", 
-                                        strlen("Enable manual mode first\n"));
-                    }
-                    break;
-                case 'A':
-                    if (manual_control_enabled) {
-                        move_left(250);
-                        uart_write_bytes(ECHO_UART_PORT_NUM, "Strafing Left\n", strlen("Strafing Left\n"));
-                    } else {
-                        uart_write_bytes(ECHO_UART_PORT_NUM, "Enable manual mode first\n", 
-                                        strlen("Enable manual mode first\n"));
-                    }
-                    break;
-                case 'D':
-                    if (manual_control_enabled) {
-                        move_right(250);
-                        uart_write_bytes(ECHO_UART_PORT_NUM, "Strafing Right\n", strlen("Strafing Right\n"));
-                    } else {
-                        uart_write_bytes(ECHO_UART_PORT_NUM, "Enable manual mode first\n", 
-                                        strlen("Enable manual mode first\n"));
-                    }
-                    break;
-                case 'Q':
-                    if (manual_control_enabled) {
-                        rotate_counterclockwise(250);
-                        uart_write_bytes(ECHO_UART_PORT_NUM, "Rotating CCW\n", strlen("Rotating CCW\n"));
-                    } else {
-                        uart_write_bytes(ECHO_UART_PORT_NUM, "Enable manual mode first\n", 
-                                        strlen("Enable manual mode first\n"));
-                    }
-                    break;
-                case 'E':
-                    if (manual_control_enabled) {
-                        rotate_clockwise(250);
-                        uart_write_bytes(ECHO_UART_PORT_NUM, "Rotating CW\n", strlen("Rotating CW\n"));
-                    } else {
-                        uart_write_bytes(ECHO_UART_PORT_NUM, "Enable manual mode first\n", 
-                                        strlen("Enable manual mode first\n"));
-                    }
-                    break;
-                case 'X':
-                    if (manual_control_enabled) {
-                        stop_all_motors();
-                        uart_write_bytes(ECHO_UART_PORT_NUM, "Motors Stopped\n", strlen("Motors Stopped\n"));
-                    } else {
-                        uart_write_bytes(ECHO_UART_PORT_NUM, "Enable manual mode first\n", 
-                                        strlen("Enable manual mode first\n"));
-                    }
-                    break;
-                case 'O': 
-                    {
-                        float dist = -1.0;
-                        if (xSemaphoreTake(sensor_mutex, portMAX_DELAY) == pdTRUE) {
-                            dist = top_distance;
-                            xSemaphoreGive(sensor_mutex);
-                        }
-                        char msg2[64];
-                        if (dist < 0) {
-                            snprintf(msg2, sizeof(msg2), "Top sensor: Out of range\n");
-                        } else {
-                            snprintf(msg2, sizeof(msg2), "Top sensor: %.2f cm\n", dist);
-                        }
-                        uart_write_bytes(ECHO_UART_PORT_NUM, msg2, strlen(msg2));
-                    }
-                    break;
-                case 'F': 
-                    {
-                        float dist = -1.0;
-                        if (xSemaphoreTake(sensor_mutex, portMAX_DELAY) == pdTRUE) {
-                            dist = front_distance;
-                            xSemaphoreGive(sensor_mutex);
-                        }
-                        char msg[64];
-                        if (dist < 0) {
-                            snprintf(msg, sizeof(msg), "Front sensor: Out of range\n");
-                        } else {
-                            snprintf(msg, sizeof(msg), "Front sensor: %.2f cm\n", dist);
-                        }
-                        uart_write_bytes(ECHO_UART_PORT_NUM, msg, strlen(msg));
-                    }
-                    break;
-                default:
-                    break;  
             }
         }
     }

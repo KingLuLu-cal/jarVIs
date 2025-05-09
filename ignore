@@ -97,28 +97,8 @@ void app_main(void)
     xTaskCreate(motor_control_task, "motor_control", 2048, NULL, 5, &motor_control_task_handle);
     xTaskCreate(echo_task, "uart_echo_task", ECHO_TASK_STACK_SIZE, NULL, 5, &echo_task_handle);
     
-    // Initialize BLE
-    nimble_port_init();                        // Initialize the host stack
-    ble_svc_gap_device_name_set("ESP32-Robot"); // Set BLE device name
-    ble_svc_gap_init();                        // Initialize NimBLE configuration - gap service
-    ble_svc_gatt_init();                       // Initialize NimBLE configuration - gatt service
-    ble_gatts_count_cfg(gatt_svcs);            // Initialize NimBLE configuration - config gatt services
-    ble_gatts_add_svcs(gatt_svcs);             // Initialize NimBLE configuration - queues gatt services.
-    ble_hs_cfg.sync_cb = ble_app_on_sync;      // Initialize application
-    
-    // Create BT command processing task
-    xTaskCreate(bt_task, "bt_cmd_task", 2048, NULL, 5, &bt_task_handle);
-    
-    // Start the BLE host task
-    nimble_port_freertos_init(host_task);
-    
+
     ESP_LOGI(TAG, "All tasks created successfully");
 }
 
 // Task handles
-TaskHandle_t blink_task_handle = NULL;
-TaskHandle_t top_sensor_task_handle = NULL;
-TaskHandle_t front_sensor_task_handle = NULL;
-TaskHandle_t motor_control_task_handle = NULL;
-TaskHandle_t echo_task_handle = NULL;
-TaskHandle_t bt_task_handle = NULL;

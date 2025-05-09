@@ -46,11 +46,12 @@ float front_distance = MAX_DISTANCE;
 // Mutex for protecting access to the shared sensor data
 SemaphoreHandle_t sensor_mutex = NULL;
 
-// Flag for manual intervention
-volatile bool manual_control_enabled = false;
+// Flag for manual interventio
 
 #define BUF_SIZE (1024)
 #define TAG "ROBOT_CONTROL"
+// ✅ DO THIS IN main.c, at global scope (usually below includes):
+volatile bool manual_control_enabled = true;
 
 static void blink_task(void *arg)
 {
@@ -62,92 +63,179 @@ static void blink_task(void *arg)
     }
 }
 
+
+// Top sensor
+volatile int64_t echo_start_top = 0;
+volatile int64_t echo_end_top = 0;
+volatile bool distance_ready_top = false;
+
+// Front sensor
+volatile int64_t echo_start_front = 0;
+volatile int64_t echo_end_front = 0;
+volatile bool distance_ready_front = false;
+
+static void IRAM_ATTR echo_isr_handler(void* arg)
+{
+    uint32_t pin = (uint32_t) arg;
+    int64_t now = esp_timer_get_time();
+
+    if (pin == ECHO_PIN) {
+        if (gpio_get_level(ECHO_PIN)) {
+            echo_start_top = now;
+        } else {
+            echo_end_top = now;
+            distance_ready_top = true;
+        }
+    } else if (pin == ECHO__front) {
+        if (gpio_get_level(ECHO__front)) {
+            echo_start_front = now;
+        } else {
+            echo_end_front = now;
+            distance_ready_front = true;
+        }
+    }
+}
+
+void setup_echo_interrupts()
+{
+    // Configure ECHO pins as inputs with interrupts
+    gpio_config_t io_conf = {
+        .intr_type = GPIO_INTR_ANYEDGE,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = 1,
+        .pull_down_en = 0,
+        .pin_bit_mask = (1ULL << ECHO_PIN) | (1ULL << ECHO__front),
+    };
+    gpio_config(&io_conf);
+
+    gpio_install_isr_service(0);
+    gpio_isr_handler_add(ECHO_PIN, echo_isr_handler, (void*) ECHO_PIN);
+    gpio_isr_handler_add(ECHO__front, echo_isr_handler, (void*) ECHO__front);
+}
+
 static void top_sensor_task(void *arg)
 {
     ESP_LOGI(TAG, "Top sensor task started");
-    while(1)
-    {
-        float current_distance = get_distance_cm(TRIG_PIN, ECHO_PIN);
-        
-        // Update the shared variable with mutex protection
+
+    while (1) {
+        distance_ready_top = false;
+
+        // Trigger ultrasonic pulse
+        gpio_set_level(TRIG_PIN, 0);
+        ets_delay_us(2);
+        gpio_set_level(TRIG_PIN, 1);
+        ets_delay_us(10);
+        gpio_set_level(TRIG_PIN, 0);
+
+        // Wait until echo ISR signals that distance is ready
+        int timeout_us = 30000;
+        int64_t start = esp_timer_get_time();
+        while (!distance_ready_top) {
+            if ((esp_timer_get_time() - start) > timeout_us) {
+                ESP_LOGW(TAG, "Top sensor timeout");
+                break;
+            }
+        }
+
+        float distance = -1;
+        if (distance_ready_top) {
+            int64_t duration = echo_end_top - echo_start_top;
+            distance = duration * 0.034 / 2.0;
+        }
+
         if (xSemaphoreTake(sensor_mutex, portMAX_DELAY) == pdTRUE) {
-            top_distance = current_distance;
+            top_distance = distance;
             xSemaphoreGive(sensor_mutex);
         }
-        
-        vTaskDelay(50 / portTICK_PERIOD_MS);  // 50ms sampling rate
+
+        vTaskDelay(pdMS_TO_TICKS(17));  // 50 ms delay
     }
 }
 
 static void front_sensor_task(void *arg)
 {
     ESP_LOGI(TAG, "Front sensor task started");
-    while(1)
-    {
-        float current_distance = get_distance_cm(TRIG__front, ECHO__front);
-        
-        // Update the shared variable with mutex protection
+
+    while (1) {
+        distance_ready_front = false;
+
+        gpio_set_level(TRIG__front, 0);
+        ets_delay_us(2);
+        gpio_set_level(TRIG__front, 1);
+        ets_delay_us(10);
+        gpio_set_level(TRIG__front, 0);
+
+        int timeout_us = 30000;
+        int64_t start = esp_timer_get_time();
+        while (!distance_ready_front) {
+            if ((esp_timer_get_time() - start) > timeout_us) {
+                ESP_LOGW(TAG, "Front sensor timeout");
+                break;
+            }
+        }
+
+        float distance = -1;
+        if (distance_ready_front) {
+            int64_t duration = echo_end_front - echo_start_front;
+            distance = duration * 0.034 / 2.0;
+        }
+
         if (xSemaphoreTake(sensor_mutex, portMAX_DELAY) == pdTRUE) {
-            front_distance = current_distance;
+            front_distance = distance;
             xSemaphoreGive(sensor_mutex);
         }
-        
-        vTaskDelay(50 / portTICK_PERIOD_MS);  // 50ms sampling rate
+
+        vTaskDelay(pdMS_TO_TICKS(17));
     }
 }
 
 static void motor_control_task(void *arg)
 {
-    ESP_LOGI(TAG, "Motor control task started");
+    #define MOTOR_TAG "MOTOR_CTRL"
+    ESP_LOGI(MOTOR_TAG, "Motor logic task started");
+
     float top = -1.0; 
     float front = -1.0;
-    char msg[128];
-    
+
     while (1)
     {
-        // Check if manual control is enabled
         if (manual_control_enabled) {
-            // Just wait and check again
             vTaskDelay(100 / portTICK_PERIOD_MS);
             continue;
         }
-        
-        // Get current sensor readings with mutex protection
+
         if (xSemaphoreTake(sensor_mutex, portMAX_DELAY) == pdTRUE) {
             top = top_distance;
             front = front_distance;
             xSemaphoreGive(sensor_mutex);
         }
-        
-        // Case 1: Obstacle in front
-        if (front > 0 && front < 20) {
+
+        if (front > 0 && front < 40) {
             if (top > MIN_DISTANCE && top < 50) {
-                // Top object detected → avoid front obstacle → go left
-                move_left(250);
-                snprintf(msg, sizeof(msg), "Top: %.2f cm, Front: %.2f cm -> GO LEFT\n", top, front);
+                rotate_counterclockwise(250);
+                vTaskDelay(500 / portTICK_PERIOD_MS);
+                // ESP_LOGI(MOTOR_TAG, "Top: %.2f cm, Front: %.2f cm → GO LEFT", top, front);
             } else {
-                // No top object → stop
                 stop_all_motors();
-                snprintf(msg, sizeof(msg), "Top: %.2f cm, Front: %.2f cm -> STOP\n", top, front);
+                // ESP_LOGI(MOTOR_TAG, "Top: %.2f cm, Front: %.2f cm → STOP", top, front);
             }
         } else {
-            // No obstacle in front
             if (top > MIN_DISTANCE && top < 50) {
-                // Top object detected → go forward (scale speed by distance)
-                uint32_t duty = (MAX_DISTANCE - top) / (MAX_DISTANCE - MIN_DISTANCE) * 255;
+                uint32_t duty = (MAX_DISTANCE - top) / (MAX_DISTANCE - MIN_DISTANCE) * 255 ;
                 move_forward(duty);
-                snprintf(msg, sizeof(msg), "Top: %.2f cm, Front: %.2f cm -> FORWARD at %" PRIu32 "\n", top, front, duty);
+                // ESP_LOGI(MOTOR_TAG, "Top: %.2f cm, Front: %.2f cm → FORWARD at duty %" PRIu32, top, front, duty);
             } else {
-                // No top detection → forward at slow
-                move_forward(180);
-                snprintf(msg, sizeof(msg), "Top: %.2f cm, Front: %.2f cm -> EXPLORING\n", top, front);
+                move_forward(current_speed);
+                ESP_LOGI("MOTOR_CTRL", "Moving forward at speed %lu", current_speed);
+
+                // ESP_LOGI(MOTOR_TAG, "Top: %.2f cm, Front: %.2f cm → EXPLORING", top, front);
             }
         }
 
-        uart_write_bytes(ECHO_UART_PORT_NUM, msg, strlen(msg));
         vTaskDelay(100 / portTICK_PERIOD_MS);
     }
 }
+
 
 void app_main(void)
 {
@@ -158,25 +246,10 @@ void app_main(void)
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
-    
     // Initialize mutex for sensor data protection
     sensor_mutex = xSemaphoreCreateMutex();
-    
-    // Configure UART
-    uart_config_t uart_config = {
-        .baud_rate = 115200,
-        .data_bits = UART_DATA_8_BITS,
-        .parity = UART_PARITY_DISABLE,
-        .stop_bits = UART_STOP_BITS_1,
-        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-        .source_clk = UART_SCLK_APB,
-    };
-    
-    // Install UART driver and create UART event queue
-    uart_driver_install(ECHO_UART_PORT_NUM, BUF_SIZE * 2, BUF_SIZE * 2, 20, NULL, 0);
-    uart_param_config(ECHO_UART_PORT_NUM, &uart_config);
-    uart_set_pin(ECHO_UART_PORT_NUM, ECHO_TEST_TXD, ECHO_TEST_RXD, ECHO_TEST_RTS, ECHO_TEST_CTS);
-    
+    setup_echo_interrupts();
+
     // LED setup
     gpio_reset_pin(13);
     gpio_set_direction(13, GPIO_MODE_OUTPUT);
@@ -197,11 +270,12 @@ void app_main(void)
     xTaskCreate(blink_task, "blink_LED", 1024, NULL, 5, &blink_task_handle);
     xTaskCreate(top_sensor_task, "top_sensor", 2048, NULL, 6, &top_sensor_task_handle);
     xTaskCreate(front_sensor_task, "front_sensor", 2048, NULL, 6, &front_sensor_task_handle);
-    xTaskCreate(motor_control_task, "motor_control", 2048, NULL, 5, &motor_control_task_handle);
-    xTaskCreate(echo_task, "uart_event", 2048, NULL, 7, &echo_task_handle);
+    xTaskCreate(motor_control_task, "motor_control", 4096, NULL, 5, &motor_control_task_handle);
+    // xTaskCreate(echo_task, "uart_event", 4096, NULL, 7, &echo_task_handle);
     
     // Start Bluetooth task
     start_bt();
-    
+    // Enable manual mode by default
+    ESP_LOGI(TAG, "Manual control enabled by default");
     ESP_LOGI(TAG, "All tasks created successfully");
 }

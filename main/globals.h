@@ -34,5 +34,5 @@ extern QueueHandle_t bt_cmd_queue;
 
 // Flag for manual intervention
 extern volatile bool manual_control_enabled;
-
+extern uint32_t current_speed;  // Current speed of the robot
 #endif // GLOBALS_H

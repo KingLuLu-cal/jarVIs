@@ -473,16 +473,6 @@ CONFIG_ARDUHAL_PARTITION_SCHEME="default"
 # end of Arduino Configuration
 
 #
-# Arduino Configuration
-#
-
-#
-# Debug Log Configuration
-#
-# end of Debug Log Configuration
-# end of Arduino Configuration
-
-#
 # ESP RainMaker Config
 #
 # CONFIG_ESP_RMAKER_NO_CLAIM is not set
