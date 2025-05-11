@@ -1,78 +1,114 @@
-| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-C61 | ESP32-H2 | ESP32-P4 | ESP32-S2 | ESP32-S3 |
-| ----------------- | ----- | -------- | -------- | -------- | -------- | --------- | -------- | -------- | -------- | -------- |
+# 🤖 jaVIs: ESP32 BLE-Controlled Mecanum Robot with Python GUI
 
-# UART Echo Example
+This project is a BLE-based mobile robot built using an ESP32 microcontroller and a mecanum drive system. It supports both **autonomous navigation** and **manual control** via a Python GUI over Bluetooth.
 
-(See the README.md file in the upper level 'examples' directory for more information about examples.)
+---
 
-This example demonstrates how to utilize UART interfaces by echoing back to the sender any data received on
-configured UART.
-
-## How to use example
-
-### Hardware Required
-
-The example can be run on any development board, that is based on the Espressif SoC. The board shall be connected to a computer with a single USB cable for flashing and monitoring. The external interface should have 3.3V outputs. You may
-use e.g. 3.3V compatible USB-to-Serial dongle.
-
-### Setup the Hardware
-
-Connect the external serial interface to the board as follows.
+## 🗂 Project Structure
 
 ```
-  -----------------------------------------------------------------------------------------
-  | Target chip Interface | Kconfig Option     | Default ESP Pin      | External UART Pin |
-  | ----------------------|--------------------|----------------------|--------------------
-  | Transmit Data (TxD)   | EXAMPLE_UART_TXD   | GPIO4                | RxD               |
-  | Receive Data (RxD)    | EXAMPLE_UART_RXD   | GPIO5                | TxD               |
-  | Ground                | n/a                | GND                  | GND               |
-  -----------------------------------------------------------------------------------------
-```
-Note: Some GPIOs can not be used with certain chips because they are reserved for internal use. Please refer to UART documentation for selected target.
-
-Optionally, you can set-up and use a serial interface that has RTS and CTS signals in order to verify that the
-hardware control flow works. Connect the extra signals according to the following table, configure both extra pins in
-the example code `uart_echo_example_main.c` by replacing existing `UART_PIN_NO_CHANGE` macros with the appropriate pin
-numbers and configure UART1 driver to use the hardware flow control by setting `.flow_ctrl = UART_HW_FLOWCTRL_CTS_RTS`
-and adding `.rx_flow_ctrl_thresh = 122` to the `uart_config` structure.
-
-```
-  ---------------------------------------------------------------
-  | Target chip Interface | Macro           | External UART Pin |
-  | ----------------------|-----------------|--------------------
-  | Transmit Data (TxD)   | ECHO_TEST_RTS   | CTS               |
-  | Receive Data (RxD)    | ECHO_TEST_CTS   | RTS               |
-  | Ground                | n/a             | GND               |
-  ---------------------------------------------------------------
+├── main.c            # FreeRTOS setup, task creation, BLE init
+├── manual.c/h        # BLE GATT server + command processing
+├── drivers.c/h       # Motor control utilities (PWM + GPIO)
+├── globals.h         # Global variables, states, handles
+├── pins.h            # GPIO pin mappings for motors and sensors
+├── client.py         # Python GUI app (Tkinter + Bleak)
+├── CMakeLists.txt    # ESP-IDF build config
+├── idf_component.yml # Dependency manifest
+└── Kconfig.projbuild # IDF project options
 ```
 
-### Configure the project
+---
 
-Use the command below to configure project using Kconfig menu as showed in the table above.
-The default Kconfig values can be changed such as: EXAMPLE_TASK_STACK_SIZE, EXAMPLE_UART_BAUD_RATE, EXAMPLE_UART_PORT_NUM (Refer to Kconfig file).
+## 🧠 Features
+
+### ✅ Robot Firmware (ESP32)
+- Mecanum motor drive with PWM control
+- BLE GATT Server with custom characteristics
+- Ultrasonic obstacle detection (front + top)
+- Dual-mode:
+  - **Manual Control** via GUI
+  - **Autonomous Mode** via distance sensors
+- Real-time FreeRTOS task scheduling
+
+### 💻 Python GUI (client.py)
+- Cross-platform GUI using Tkinter
+- BLE connection via [`bleak`](https://github.com/hbldh/bleak)
+- Command buttons:
+  - Directional: `Forward`, `Backward`, `Left`, `Right`
+  - Rotation: `CW`, `CCW`
+  - Mode Switch: `Manual Start/Stop`
+  - Velocity setting (default: 180)
+- Responsive interface using threads
+- Log panel for feedback
+- **Hold-to-repeat** movement logic for smooth control
+
+---
+
+## 🛠 Requirements
+
+### Hardware
+- ESP32 Development Board
+- 4 Mecanum Wheels + Motor Driver (PWM capable)
+- 2× Ultrasonic Sensors (e.g., HC-SR04)
+- 5V Power Supply or Battery Pack
+
+### Software
+- [ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/)
+- Python 3.7+
+  - `bleak`, `tkinter`, `asyncio` (included in Python)
+- iOS App (optional): Swift app provided for BLE control
+
+---
+
+## 🧪 Build & Flash (ESP32)
+
+```bash
+idf.py set-target esp32
+idf.py build
+idf.py flash -p /dev/ttyUSB0
+idf.py monitor
 ```
-idf.py menuconfig
+
+---
+
+## 🕹 Running the GUI
+
+Install dependencies:
+
+```bash
+pip install bleak
 ```
 
-### Build and Flash
+Then launch:
 
-Build the project and flash it to the board, then run monitor tool to view serial output:
-
-```
-idf.py -p PORT flash monitor
+```bash
+python client.py
 ```
 
-(To exit the serial monitor, type ``Ctrl-]``.)
+The GUI will:
+- Scan for `ESP32-Robot`
+- Connect over BLE
+- Enable button controls with visual feedback (Red=Active, Green=Success)
 
-See the Getting Started Guide for full steps to configure and use ESP-IDF to build projects.
+---
 
-## Example Output
+## 📶 BLE Characteristics
 
-Type some characters in the terminal connected to the external serial interface. As result you should see echo in the same terminal which you used for typing the characters. You can verify if the echo indeed comes from ESP board by
-disconnecting either `TxD` or `RxD` pin: no characters will appear when typing.
+| Name         | UUID                                   | Type  | Description                    |
+|--------------|----------------------------------------|-------|--------------------------------|
+| TOP Sensor   | `12345678-90ab-cdef-fedc-ba0987654321` | READ  | Returns top distance (cm)     |
+| FRONT Sensor | `21436587-09ba-dcfe-efcd-ab9078563412` | READ  | Returns front distance (cm)   |
+| Motor State  | `ABCDEF12-3456-7890-9078-563412EFCDAB` | READ  | Robot motion state (enum)     |
+| Command      | `0000dead-0000-1000-8000-00805f9b34fb` | WRITE | Movement/Mode/Speed commands  |
 
-## Troubleshooting
+---
 
-You are not supposed to see the echo in the terminal which is used for flashing and monitoring, but in the other UART configured through Kconfig can be used.
-# jarVIs
-# jarVIs
+## 🎮 BLE Commands Accepted
+
+- `FORWARD`, `BACKWARD`, `LEFT`, `RIGHT`
+- `ROTATE_CW`, `ROTATE_CCW`, `STOP`
+- `MANUAL_START`, `MANUAL_STOP`
+- `V<speed>` e.g. `V180` to change velocity (120–250 allowed)
+
+
