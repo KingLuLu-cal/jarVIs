@@ -50,7 +50,7 @@ SemaphoreHandle_t sensor_mutex = NULL;
 
 #define BUF_SIZE (1024)
 #define TAG "ROBOT_CONTROL"
-// ✅ DO THIS IN main.c, at global scope (usually below includes):
+
 volatile bool manual_control_enabled = true;
 
 static void blink_task(void *arg)

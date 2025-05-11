@@ -8,7 +8,7 @@ import time
 import sys
 from bleak import BleakScanner, BleakClient
 
-# ===== CONFIGURATION =====
+# configuration
 TARGET_NAME = "ESP32-Robot"
 CHAR_UUID = "0000dead-0000-1000-8000-00805f9b34fb"
 CHAR_UUID_TOP = "12345678-90ab-cdef-fedc-ba0987654321"
