@@ -189,12 +189,8 @@ static void front_sensor_task(void *arg)
     }
 }
 
-typedef enum {
-    AE_SLOW,
-    AE_SCURRY,
-    AE_SPEED_AWAY,
-    AE_STOP,
-} motor_state_t;
+
+motor_state_t state = AE_STOP;
 
 static void motor_control_task(void *arg)
 {
@@ -203,7 +199,6 @@ static void motor_control_task(void *arg)
 
     float top = -1.0;
     float front = -1.0;
-    motor_state_t state;
 
     while (1)
     {

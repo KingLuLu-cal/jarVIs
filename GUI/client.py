@@ -1,3 +1,5 @@
+# Full Python BLE GUI with Motor State Polling and Improved Logging
+
 import tkinter as tk
 from tkinter import ttk, messagebox
 import threading
@@ -11,6 +13,8 @@ TARGET_NAME = "ESP32-Robot"
 CHAR_UUID = "0000dead-0000-1000-8000-00805f9b34fb"
 CHAR_UUID_TOP = "12345678-90ab-cdef-fedc-ba0987654321"
 CHAR_UUID_FRONT = "21436587-09ba-dcfe-efcd-ab9078563412"
+CHAR_UUID_STATE = "ABCDEF12-3456-7890-9078-563412EFCDAB"  # UUID for motor state
+
 
 COMMANDS = {
     'Forward': 'FORWARD',
@@ -24,12 +28,20 @@ COMMANDS = {
     'MANUAL_STOP': 'MANUAL_STOP'
 }
 
+motor_state_mapping = {
+    0: "Slow",
+    1: "🌀 Panic Mode",
+    2: "⚡ Speed Away",
+    3: "🛑 Stop"
+}
+
 ble_client = None
 device_address = None
 is_connected = False
 continuous_movement = False
 continuous_thread = None
 loop = None
+current_direction = None
 
 def create_asyncio_loop():
     global loop
@@ -95,6 +107,7 @@ def connect_to_device():
                 root.after(0, lambda: status_label.configure(text=f"Connected to {selected_device}", foreground="lime"))
                 root.after(0, lambda: connect_btn.configure(text="Disconnect", command=disconnect_from_device))
                 root.after(0, lambda: toggle_control_buttons(True))
+                root.after(0, poll_motor_state)
             else:
                 root.after(0, lambda: status_label.configure(text="Connection failed", foreground="red"))
         except Exception as e:
@@ -122,6 +135,7 @@ def disconnect_from_device():
             root.after(0, lambda: status_label.configure(text="Disconnected", foreground="orange"))
             root.after(0, lambda: connect_btn.configure(text="Connect", command=connect_to_device))
             root.after(0, lambda: toggle_control_buttons(False))
+            root.after(0, lambda: motor_state_label.config(text="Explore State: --"))
         except Exception as e:
             root.after(0, lambda: messagebox.showerror("Disconnection Error", str(e)))
     threading.Thread(target=disconnect_thread, daemon=True).start()
@@ -136,6 +150,12 @@ async def send_command_async(cmd):
     except Exception as e:
         raise Exception(f"Send error: {str(e)}")
 
+def log_command(message):
+    log_text.config(state=tk.NORMAL)
+    log_text.insert(tk.END, f"{message}\n")
+    log_text.see(tk.END)
+    log_text.config(state=tk.DISABLED)
+
 def on_control_press(direction):
     if direction in COMMANDS:
         command = COMMANDS[direction]
@@ -144,39 +164,36 @@ def on_control_press(direction):
                 future = run_async(send_command_async(command))
                 response = future.result()
                 def update_ui():
-                    log_text.config(state=tk.NORMAL)
-                    log_text.insert(tk.END, f"{response}\n")
-                    log_text.see(tk.END)
-                    log_text.config(state=tk.DISABLED)
+                    log_command(response)
                     movement_label.configure(text=f"Movement: {direction}")
                 root.after(0, update_ui)
             except Exception as e:
                 def show_error():
                     messagebox.showerror("Communication Error", str(e))
-                    log_text.config(state=tk.NORMAL)
-                    log_text.insert(tk.END, f"Error: {str(e)}\n")
-                    log_text.see(tk.END)
-                    log_text.config(state=tk.DISABLED)
+                    log_command(f"Error: {str(e)}")
                 root.after(0, show_error)
         threading.Thread(target=send_thread, daemon=True).start()
 
 def on_control_hold(direction):
-    global continuous_movement, continuous_thread
+    global continuous_movement, continuous_thread, current_direction
     continuous_movement = False
     if continuous_thread and continuous_thread.is_alive():
         continuous_thread.join(0.5)
     continuous_movement = True
+    current_direction = direction
     continuous_thread = threading.Thread(target=continuous_send, args=(direction,))
     continuous_thread.daemon = True
     continuous_thread.start()
 
 def on_control_release():
-    global continuous_movement
+    global continuous_movement, current_direction
     continuous_movement = False
-    on_control_press('Stop')
+    if current_direction in COMMANDS:
+        on_control_press(current_direction)
+        on_control_press('Stop')
+    current_direction = None
 
 def continuous_send(direction):
-    global continuous_movement
     if direction in COMMANDS:
         command = COMMANDS[direction]
         while continuous_movement and is_connected:
@@ -186,6 +203,22 @@ def continuous_send(direction):
                 time.sleep(0.1)
             except:
                 break
+
+def poll_motor_state():
+    print('polling motor state')
+    def poll():
+        while is_connected:
+            try:
+                data = run_async(ble_client.read_gatt_char(CHAR_UUID_STATE)).result()
+                print(data)
+                state_int = int.from_bytes(data, byteorder='little')
+                state_text = motor_state_mapping.get(state_int, "Unknown")
+                root.after(0, lambda: motor_state_label.config(text=f"Explore State: {state_text}"))
+            except Exception as e:
+                print("Error reading motor state", e)
+                pass
+            time.sleep(0.5)
+    threading.Thread(target=poll, daemon=True).start()
 
 def toggle_control_buttons(enable):
     state = tk.NORMAL if enable else tk.DISABLED
@@ -249,8 +282,10 @@ connect_btn.grid(row=0, column=3, padx=5, pady=5)
 
 status_label = tk.Label(conn_frame, text="Not Connected", fg="red", bg="#102542")
 status_label.grid(row=1, column=0, columnspan=4, sticky=tk.W, pady=5)
-movement_label = tk.Label(conn_frame, text="Movement: None", font=('Arial', 12, 'bold'), bg="#102542", fg="white")
-movement_label.grid(row=2, column=0, columnspan=4, sticky=tk.W, pady=10)
+# movement_label = tk.Label(conn_frame, text="Movement: None", font=('Arial', 12, 'bold'), bg="#102542", fg="white")
+# movement_label.grid(row=2, column=0, columnspan=4, sticky=tk.W, pady=5)
+motor_state_label = tk.Label(conn_frame, text="Explore State: --", font=('Arial', 12, 'bold'), bg="#102542", fg="#ff3b3f")
+motor_state_label.grid(row=3, column=0, columnspan=4, sticky=tk.W, pady=5)
 
 log_frame = ttk.LabelFrame(left_panel, text="Command Log", padding="10")
 log_frame.pack(fill=tk.BOTH, expand=True, pady=5)
@@ -292,33 +327,12 @@ create_btn(middle_row, "→ Right", "Right")
 bottom_row = ttk.Frame(buttons_frame); bottom_row.pack(pady=5)
 create_btn(bottom_row, "↓ Backward", "Backward")
 
-# Manual mode frame
 manual_frame = ttk.LabelFrame(right_panel, text="Manual Control", padding="10")
 manual_frame.pack(fill=tk.X, pady=5)
-
-manual_start_btn = ttk.Button(manual_frame, text="Manual Mode",
-    command=lambda: on_control_press('MANUAL_START'))
+manual_start_btn = ttk.Button(manual_frame, text="Manual Mode", command=lambda: on_control_press('MANUAL_START'))
 manual_start_btn.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill=tk.X)
-
-manual_stop_btn = ttk.Button(manual_frame, text="Autonomous Mode",
-    command=lambda: on_control_press('MANUAL_STOP'))
+manual_stop_btn = ttk.Button(manual_frame, text="Autonomous Mode", command=lambda: on_control_press('MANUAL_STOP'))
 manual_stop_btn.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill=tk.X)
-
-
-def read_sensor(uuid_label):
-    def thread():
-        try:
-            result = run_async(ble_client.read_gatt_char(uuid_label)).result().decode("utf-8")
-            def update_log():
-                log_text.config(state=tk.NORMAL)
-                log_text.insert(tk.END, f"{result}\n")
-                log_text.see(tk.END)
-                log_text.config(state=tk.DISABLED)
-            root.after(0, update_log)
-        except Exception as e:
-            root.after(0, lambda: messagebox.showerror("Read Error", str(e)))
-    threading.Thread(target=thread, daemon=True).start()
-
 
 ttk.Button(right_panel, text="Read FRONT Sensor", command=lambda: read_sensor(CHAR_UUID_TOP)).pack(pady=3)
 ttk.Button(right_panel, text="Read TOP Sensor", command=lambda: read_sensor(CHAR_UUID_FRONT)).pack(pady=3)
@@ -343,6 +357,17 @@ def on_closing():
         loop.call_soon_threadsafe(loop.stop)
     root.destroy()
     sys.exit(0)
+
+def read_sensor(uuid_label):
+    def thread():
+        try:
+            result = run_async(ble_client.read_gatt_char(uuid_label)).result().decode("utf-8")
+            def update_log():
+                log_command(result)
+            root.after(0, update_log)
+        except Exception as e:
+            root.after(0, lambda: messagebox.showerror("Read Error", str(e)))
+    threading.Thread(target=thread, daemon=True).start()
 
 root.protocol("WM_DELETE_WINDOW", on_closing)
 root.mainloop()

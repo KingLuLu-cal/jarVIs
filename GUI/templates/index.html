@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>JARVIS BLE Controller 🕸️</title>
+  <link rel="stylesheet" href="styles.css"/>
+</head>
+<body>
+  <div class="container">
+    <h1>Team JarVIs 🕸️</h1>
+    <div class="controls">
+      <div class="row">
+        <button class="control-btn" data-command="Rotate CCW">⟲ CCW</button>
+        <button class="control-btn" data-command="Forward">↑ Forward</button>
+        <button class="control-btn" data-command="Rotate CW">⟳ CW</button>
+      </div>
+      <div class="row">
+        <button class="control-btn" data-command="Left">← Left</button>
+        <button class="control-btn" data-command="Stop">■ Stop</button>
+        <button class="control-btn" data-command="Right">→ Right</button>
+      </div>
+      <div class="row">
+        <button class="control-btn" data-command="Backward">↓ Backward</button>
+      </div>
+    </div>
+    <div class="modes">
+      <button class="mode-btn" data-command="MANUAL_START">Manual Mode</button>
+      <button class="mode-btn" data-command="MANUAL_STOP">Autonomous Mode</button>
+    </div>
+    <div class="speed-control">
+      <label for="speed">Speed:</label>
+      <input type="range" id="speed" min="120" max="250" value="185"/>
+    </div>
+    <div class="sensors">
+      <button class="sensor-btn" data-sensor="FRONT">Read FRONT Sensor</button>
+      <button class="sensor-btn" data-sensor="TOP">Read TOP Sensor</button>
+    </div>
+    <div class="log">
+      <h2>Command Log</h2>
+      <textarea id="log" readonly></textarea>
+    </div>
+  </div>
+  <script src="script.js"></script>
+</body>
+</html>

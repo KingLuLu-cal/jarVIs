@@ -35,4 +35,12 @@ extern QueueHandle_t bt_cmd_queue;
 // Flag for manual intervention
 extern volatile bool manual_control_enabled;
 extern uint32_t current_speed;  // Current speed of the robot
+typedef enum {
+    AE_SLOW,
+    AE_SCURRY,
+    AE_SPEED_AWAY,
+    AE_STOP,
+} motor_state_t;
+
+extern motor_state_t state;
 #endif // GLOBALS_H

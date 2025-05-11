@@ -70,6 +70,14 @@ int device_write(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_acc
     return 0;
 }
 
+
+static int device_read_state(uint16_t con_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    int32_t current_state = (int32_t)state;
+    os_mbuf_append(ctxt->om, &current_state, sizeof(current_state));
+    return 0;
+}
+
 static int device_read(uint16_t con_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
     // Choose sensor based on `arg`
@@ -109,6 +117,11 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
             .access_cb = device_read,
             .arg = (void*)"FRONT"
          },
+         {
+            .uuid = BLE_UUID128_DECLARE(0xAB,0xCD,0xEF,0x12,0x34,0x56,0x78,0x90,0x90,0x78,0x56,0x34,0x12,0xEF,0xCD,0xAB),
+            .flags = BLE_GATT_CHR_F_READ,
+            .access_cb = device_read_state
+        },        
         {
             .uuid = BLE_UUID16_DECLARE(0xDEAD),
             .flags = BLE_GATT_CHR_F_WRITE,
