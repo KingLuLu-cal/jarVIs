@@ -49,7 +49,8 @@ This project is a BLE-based mobile robot built using an ESP32 microcontroller an
 
 ### Hardware
 - ESP32 Development Board
-- 4 Mecanum Wheels + Motor Driver (PWM capable)
+- 4 Mecanum Wheels
+- 2x Motor Drivers (PWM capable) (DRV8833)
 - 2× Ultrasonic Sensors (e.g., HC-SR04)
 - 5V Power Supply or Battery Pack
 
