@@ -46,7 +46,7 @@ float front_distance = MAX_DISTANCE;
 // Mutex for protecting access to the shared sensor data
 SemaphoreHandle_t sensor_mutex = NULL;
 
-// Flag for manual interventio
+// Flag for manual intervention
 
 #define BUF_SIZE (1024)
 #define TAG "ROBOT_CONTROL"
